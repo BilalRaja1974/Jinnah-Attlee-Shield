@@ -5,7 +5,7 @@ import {
   calcPH, scrambHcp, shotsOnHole, playerPH,
   getResults, matchStat, statLabel, matchPts, fmtPt,
   type Player, type Course, type Pairing, type Hole,
-} from '@/lib/golf';
+} from '../lib/golf';
 
 // ── Styles ────────────────────────────────────────────────
 const S = {
@@ -546,9 +546,9 @@ function Scorecard({ day, pid, players, course, scores, onBack }: { day: number;
   if (day === 2) scoreKey = `d2_${pid}`;
   else if (day === 3) scoreKey = `d3_${pid}`;
 
-  const raw = scoreKey ? (scores[scoreKey] || []) : [];
-  const tot = raw.reduce((a, s) => s ? a + s : a, 0);
-  const netTot = phVal !== null ? raw.reduce((a, s, i) => s ? a + s - shotsOnHole(phVal, course.holes[i].si) : a, 0) : null;
+  const raw: (number | null)[] = scoreKey ? (scores[scoreKey] || []) : [];
+  const tot = raw.reduce((a: number, s) => (s != null ? a + s : a), 0);
+  const netTot = phVal !== null ? raw.reduce((a: number, s, i) => (s != null ? a + (s as number) - shotsOnHole(phVal as number, course.holes[i].si) : a), 0) : null;
   const parTot = course.holes.reduce((a, h) => a + h.par, 0);
 
   const hs: React.CSSProperties = { padding: '3px 4px', textAlign: 'center', fontSize: 11, color: '#aaa' };
@@ -776,6 +776,7 @@ function Leaderboard({ players, courses, pairings, scores }: { players: Player[]
 // ── Root app ──────────────────────────────────────────────
 export default function App() {
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [setupDone, setSetupDone] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -784,19 +785,30 @@ export default function App() {
   const [nav, setNav] = useState<string>('home');
 
   const loadAll = useCallback(async () => {
-    const [setupRes, playersRes, coursesRes, pairingsRes, scoresRes] = await Promise.all([
-      fetch('/api/setup').then(r => r.json()),
-      fetch('/api/players').then(r => r.json()),
-      fetch('/api/courses').then(r => r.json()),
-      fetch('/api/pairings').then(r => r.json()),
-      fetch('/api/scores').then(r => r.json()),
-    ]);
-    setSetupDone(setupRes.done);
-    setPlayers(playersRes);
-    setCourses(coursesRes);
-    setPairings(pairingsRes);
-    setScores(scoresRes);
-    setReady(true);
+    setLoadError(null);
+    try {
+      const fetchJson = async (url: string) => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`${url} returned ${r.status}: ${await r.text()}`);
+        return r.json();
+      };
+      const [setupRes, playersRes, coursesRes, pairingsRes, scoresRes] = await Promise.all([
+        fetchJson('/api/setup'),
+        fetchJson('/api/players'),
+        fetchJson('/api/courses'),
+        fetchJson('/api/pairings'),
+        fetchJson('/api/scores'),
+      ]);
+      setSetupDone(setupRes.done);
+      setPlayers(playersRes);
+      setCourses(coursesRes);
+      setPairings(pairingsRes);
+      setScores(scoresRes);
+      setReady(true);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLoadError(msg);
+    }
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -805,6 +817,16 @@ export default function App() {
     await fetch('/api/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, holes }) });
     setScores(prev => ({ ...prev, [key]: holes }));
   };
+
+  if (loadError) return (
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: '2rem 1rem' }}>
+      <div style={{ background: '#fff1f0', border: '1px solid #ffc9c9', borderRadius: 12, padding: '1.25rem' }}>
+        <div style={{ fontSize: 15, fontWeight: 500, color: '#c0392b', marginBottom: 8 }}>Failed to load app</div>
+        <div style={{ fontSize: 12, color: '#888', fontFamily: 'monospace', background: '#f8f8f6', padding: '0.75rem', borderRadius: 8, marginBottom: '1rem', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{loadError}</div>
+        <button onClick={loadAll} style={{ padding: '8px 18px', borderRadius: 999, background: '#111', color: '#fff', border: 'none', fontSize: 13, cursor: 'pointer' }}>Retry</button>
+      </div>
+    </div>
+  );
 
   if (!ready) return (
     <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 1rem' }}>
