@@ -677,6 +677,19 @@ function PairingsEditor({ day, pairings, setPairings, players }: { day: number; 
   const tp = { A: players.filter(p => p.teamId === 'A'), B: players.filter(p => p.teamId === 'B') };
   const dm = pairings.filter(p => p.day === day);
 
+  // Build set of already-used player ids per team across all matches on this day
+  const usedA = new Set<string>();
+  const usedB = new Set<string>();
+  dm.forEach(m => {
+    if (day < 3) {
+      (m.teamA || []).forEach(id => id && usedA.add(id));
+      (m.teamB || []).forEach(id => id && usedB.add(id));
+    } else {
+      if (m.playerA) usedA.add(m.playerA);
+      if (m.playerB) usedB.add(m.playerB);
+    }
+  });
+
   const updSlot = (id: string, side: 'teamA' | 'teamB', si: number, v: string) => {
     setPairings(pairings.map(p => {
       if (p.id !== id) return p;
@@ -687,10 +700,15 @@ function PairingsEditor({ day, pairings, setPairings, players }: { day: number; 
   const updField = (id: string, field: 'playerA' | 'playerB', v: string) =>
     setPairings(pairings.map(p => p.id === id ? { ...p, [field]: v } : p));
 
-  const Sel = ({ opts, val, onChange }: { opts: Player[]; val: string; onChange: (v: string) => void }) => (
+  // Sel: shows all players but disables already-used ones (except the current slot value)
+  const Sel = ({ opts, val, usedSet, onChange }: { opts: Player[]; val: string; usedSet: Set<string>; onChange: (v: string) => void }) => (
     <select style={S.sel} value={val || ''} onChange={e => onChange(e.target.value)}>
       <option value="">— Select —</option>
-      {opts.map(p => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}
+      {opts.map(p => (
+        <option key={p.id} value={p.id} disabled={usedSet.has(p.id) && p.id !== val}>
+          {p.name || p.id}{usedSet.has(p.id) && p.id !== val ? ' (assigned)' : ''}
+        </option>
+      ))}
     </select>
   );
 
@@ -703,28 +721,28 @@ function PairingsEditor({ day, pairings, setPairings, players }: { day: number; 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr', gap: 6, alignItems: 'start' }}>
               <div>
                 <div style={{ fontSize: 11, color: TCOL.A, fontWeight: 500, marginBottom: 4 }}>{TNAME.A}</div>
-                <Sel opts={tp.A} val={(m.teamA || [])[0]} onChange={v => updSlot(m.id, 'teamA', 0, v)} />
+                <Sel opts={tp.A} val={(m.teamA || [])[0]} usedSet={usedA} onChange={v => updSlot(m.id, 'teamA', 0, v)} />
                 <div style={{ height: 4 }} />
-                <Sel opts={tp.A} val={(m.teamA || [])[1]} onChange={v => updSlot(m.id, 'teamA', 1, v)} />
+                <Sel opts={tp.A} val={(m.teamA || [])[1]} usedSet={usedA} onChange={v => updSlot(m.id, 'teamA', 1, v)} />
               </div>
               <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', paddingTop: 8 }}>vs</div>
               <div>
                 <div style={{ fontSize: 11, color: TCOL.B, fontWeight: 500, marginBottom: 4 }}>{TNAME.B}</div>
-                <Sel opts={tp.B} val={(m.teamB || [])[0]} onChange={v => updSlot(m.id, 'teamB', 0, v)} />
+                <Sel opts={tp.B} val={(m.teamB || [])[0]} usedSet={usedB} onChange={v => updSlot(m.id, 'teamB', 0, v)} />
                 <div style={{ height: 4 }} />
-                <Sel opts={tp.B} val={(m.teamB || [])[1]} onChange={v => updSlot(m.id, 'teamB', 1, v)} />
+                <Sel opts={tp.B} val={(m.teamB || [])[1]} usedSet={usedB} onChange={v => updSlot(m.id, 'teamB', 1, v)} />
               </div>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr', gap: 6, alignItems: 'start' }}>
               <div>
                 <div style={{ fontSize: 11, color: TCOL.A, fontWeight: 500, marginBottom: 4 }}>{TNAME.A}</div>
-                <Sel opts={tp.A} val={m.playerA} onChange={v => updField(m.id, 'playerA', v)} />
+                <Sel opts={tp.A} val={m.playerA} usedSet={usedA} onChange={v => updField(m.id, 'playerA', v)} />
               </div>
               <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', paddingTop: 8 }}>vs</div>
               <div>
                 <div style={{ fontSize: 11, color: TCOL.B, fontWeight: 500, marginBottom: 4 }}>{TNAME.B}</div>
-                <Sel opts={tp.B} val={m.playerB} onChange={v => updField(m.id, 'playerB', v)} />
+                <Sel opts={tp.B} val={m.playerB} usedSet={usedB} onChange={v => updField(m.id, 'playerB', v)} />
               </div>
             </div>
           )}
@@ -789,6 +807,7 @@ function ScoreEntry({ day, matchId, pairings, players, course, scores, onSave, o
   const ph = (pid: string) => { const p = players.find(x => x.id === pid); return (!p || p.hi === null) ? 0 : playerPH(p, course); };
   const [localScores, setLocalScores] = useState<Record<string, (number | null)[]>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [showRules, setShowRules] = useState(false);
 
   useEffect(() => {
     const init: Record<string, (number | null)[]> = {};
@@ -879,64 +898,155 @@ function ScoreEntry({ day, matchId, pairings, players, course, scores, onSave, o
         </div>
       </div>
 
+      <button onClick={() => setShowRules(!showRules)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0.75rem', fontSize: 12, color: '#888', textAlign: 'left' }}>
+        <span>{showRules ? '▲' : '▼'}</span>
+        <span>Format & handicap rules</span>
+      </button>
+
+      {showRules && (
+        <div style={{ ...S.card, marginBottom: '0.75rem', fontSize: 12, color: '#555', lineHeight: 1.7 }}>
+          {day === 1 && (
+            <div>
+              <div style={{ fontWeight: 500, marginBottom: 6, color: '#111' }}>2-Ball Scramble</div>
+              <div style={{ marginBottom: 8 }}>Both players tee off on each hole. The best drive is selected and both players play their next shot from that spot. This continues until the ball is holed. The team records one score per hole.</div>
+              <div style={{ fontWeight: 500, marginBottom: 4, color: '#111' }}>Team handicap</div>
+              <div>Calculated as: 35% of the lower playing handicap + 15% of the higher playing handicap, rounded to the nearest whole number. The team with the higher handicap receives the difference as shots on the scorecard, allocated by stroke index.</div>
+            </div>
+          )}
+          {day === 2 && (
+            <div>
+              <div style={{ fontWeight: 500, marginBottom: 6, color: '#111' }}>Fourball better ball</div>
+              <div style={{ marginBottom: 8 }}>All four players play their own ball throughout. On each hole, the best net score from each pair counts. The team whose player has the lower net score wins the hole.</div>
+              <div style={{ fontWeight: 500, marginBottom: 4, color: '#111' }}>Handicap</div>
+              <div>Full playing handicaps apply. The lowest playing handicap of the four players goes to scratch. All other players receive the difference as shots, allocated by stroke index.</div>
+            </div>
+          )}
+          {day === 3 && (
+            <div>
+              <div style={{ fontWeight: 500, marginBottom: 6, color: '#111' }}>Singles match play</div>
+              <div style={{ marginBottom: 8 }}>Each player plays their own ball. The player with the lower net score wins the hole. The match is decided by holes won — the player who is more holes up than there are holes remaining wins.</div>
+              <div style={{ fontWeight: 500, marginBottom: 4, color: '#111' }}>Handicap</div>
+              <div>The lower playing handicap goes to scratch. The higher handicap player receives the difference as shots, allocated by stroke index.</div>
+            </div>
+          )}
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f0f0ec' }}>
+            <div style={{ fontWeight: 500, marginBottom: 4, color: '#111' }}>Points (all formats)</div>
+            <div>Win = 1 point · Halved = ½ point each · Loss = 0 points</div>
+          </div>
+        </div>
+      )}
+
       <div style={{ ...S.card, padding: '0.5rem', overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 560 }}>
           <thead>
             <tr>
               <th style={{ ...hs, textAlign: 'left', width: 120 }} />
-              {activeTeeOf(course).holes.map((_, i) => <th key={i} style={{ ...hs, minWidth: 34 }}>{i + 1}</th>)}
+              {activeTeeOf(course).holes.slice(0, 9).map((_, i) => <th key={i} style={{ ...hs, minWidth: 34 }}>{i + 1}</th>)}
+              <th style={{ ...hs, minWidth: 36, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>Out</th>
+              {activeTeeOf(course).holes.slice(9).map((_, i) => <th key={i + 9} style={{ ...hs, minWidth: 34 }}>{i + 10}</th>)}
+              <th style={{ ...hs, minWidth: 36, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>In</th>
               <th style={{ ...hs, minWidth: 40 }}>Save</th>
             </tr>
             <tr>
               <td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>Par</td>
-              {activeTeeOf(course).holes.map((hole, i) => <td key={i} style={hs}>{hole.par}</td>)}
+              {activeTeeOf(course).holes.slice(0, 9).map((hole, i) => <td key={i} style={hs}>{hole.par}</td>)}
+              <td style={{ ...hs, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>{activeTeeOf(course).holes.slice(0,9).reduce((a,h) => a+h.par, 0)}</td>
+              {activeTeeOf(course).holes.slice(9).map((hole, i) => <td key={i+9} style={hs}>{hole.par}</td>)}
+              <td style={{ ...hs, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>{activeTeeOf(course).holes.slice(9).reduce((a,h) => a+h.par, 0)}</td>
               <td />
             </tr>
             <tr>
               <td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>S.I.</td>
-              {activeTeeOf(course).holes.map((hole, i) => <td key={i} style={hs}>{hole.si}</td>)}
+              {activeTeeOf(course).holes.slice(0, 9).map((hole, i) => <td key={i} style={hs}>{hole.si}</td>)}
+              <td style={{ ...hs, background: '#f4f4f0' }} />
+              {activeTeeOf(course).holes.slice(9).map((hole, i) => <td key={i+9} style={hs}>{hole.si}</td>)}
+              <td style={{ ...hs, background: '#f4f4f0' }} />
               <td />
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
-              <tr key={row.key}>
-                <td style={{ ...cs, textAlign: 'left', fontWeight: 500, color: TCOL[row.teamId], paddingLeft: 4, whiteSpace: 'nowrap', fontSize: 11 }}>
-                  {row.label} ({row.hcp})
-                </td>
-                {activeTeeOf(course).holes.map((hole, i) => {
-                  const val = localScores[row.key]?.[i] ?? null;
-                  const net = val !== null ? val - shotsOnHole(row.shots, hole.si) : null;
-                  const diff = net !== null ? net - hole.par : null;
-                  const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
-                  const fc = diff == null || diff === 0 ? '#111' : '#fff';
-                  return (
-                    <td key={i} style={{ padding: 2 }}>
-                      <input type="number" min={1} max={15} value={val ?? ''} onChange={e => setScore(row.key, i, e.target.value)}
-                        style={{ width: 33, textAlign: 'center', padding: '3px 1px', border: '1px solid #ddd', borderRadius: 4, fontSize: 12, background: bg, color: fc }} />
-                    </td>
-                  );
-                })}
-                <td style={{ padding: '2px 4px' }}>
-                  <button onClick={() => saveRow(row.key)} disabled={saving === row.key} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd', background: saving === row.key ? '#f0f0ec' : '#111', color: saving === row.key ? '#888' : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    {saving === row.key ? '…' : 'Save'}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((row, rowIdx) => {
+              const label = rows.length <= 2
+                ? (rowIdx === 0 ? 'A' : 'B')
+                : (rowIdx === 0 || rowIdx === 1 ? 'A' : 'B');
+              const pairLabel = rows.length > 2
+                ? `${label}${rowIdx % 2 === 0 ? '1' : '2'}`
+                : label;
+              const outTotal = activeTeeOf(course).holes.slice(0,9).reduce((a, _, i) => {
+                const v = localScores[row.key]?.[i] ?? null;
+                return v != null ? a + v : a;
+              }, 0);
+              const inTotal = activeTeeOf(course).holes.slice(9).reduce((a, _, i) => {
+                const v = localScores[row.key]?.[i+9] ?? null;
+                return v != null ? a + v : a;
+              }, 0);
+              const outFilled = activeTeeOf(course).holes.slice(0,9).every((_, i) => localScores[row.key]?.[i] != null);
+              const inFilled = activeTeeOf(course).holes.slice(9).every((_, i) => localScores[row.key]?.[i+9] != null);
+              return (
+                <tr key={row.key}>
+                  <td style={{ ...cs, textAlign: 'left', fontWeight: 500, color: TCOL[row.teamId], paddingLeft: 4, whiteSpace: 'nowrap', fontSize: 11 }}>
+                    {pairLabel}: {row.label} ({row.hcp})
+                  </td>
+                  {activeTeeOf(course).holes.slice(0,9).map((hole, i) => {
+                    const val = localScores[row.key]?.[i] ?? null;
+                    const net = val !== null ? val - shotsOnHole(row.shots, hole.si) : null;
+                    const diff = net !== null ? net - hole.par : null;
+                    const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
+                    const fc = diff == null || diff === 0 ? '#111' : '#fff';
+                    return (
+                      <td key={i} style={{ padding: 2 }}>
+                        <input type="number" min={1} max={15} value={val ?? ''} onChange={e => setScore(row.key, i, e.target.value)}
+                          style={{ width: 33, textAlign: 'center', padding: '3px 1px', border: '1px solid #ddd', borderRadius: 4, fontSize: 12, background: bg, color: fc }} />
+                      </td>
+                    );
+                  })}
+                  <td style={{ ...cs, background: '#f4f4f0', fontWeight: 500, color: outFilled ? '#111' : '#bbb' }}>{outFilled ? outTotal : '—'}</td>
+                  {activeTeeOf(course).holes.slice(9).map((hole, i) => {
+                    const val = localScores[row.key]?.[i+9] ?? null;
+                    const net = val !== null ? val - shotsOnHole(row.shots, hole.si) : null;
+                    const diff = net !== null ? net - hole.par : null;
+                    const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
+                    const fc = diff == null || diff === 0 ? '#111' : '#fff';
+                    return (
+                      <td key={i+9} style={{ padding: 2 }}>
+                        <input type="number" min={1} max={15} value={val ?? ''} onChange={e => setScore(row.key, i+9, e.target.value)}
+                          style={{ width: 33, textAlign: 'center', padding: '3px 1px', border: '1px solid #ddd', borderRadius: 4, fontSize: 12, background: bg, color: fc }} />
+                      </td>
+                    );
+                  })}
+                  <td style={{ ...cs, background: '#f4f4f0', fontWeight: 500, color: inFilled ? '#111' : '#bbb' }}>{inFilled ? inTotal : '—'}</td>
+                  <td style={{ padding: '2px 4px' }}>
+                    <button onClick={() => saveRow(row.key)} disabled={saving === row.key} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd', background: saving === row.key ? '#f0f0ec' : '#111', color: saving === row.key ? '#888' : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {saving === row.key ? '…' : 'Save'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
             <tr>
               <td style={{ ...cs, textAlign: 'left', fontSize: 11, color: '#888', paddingLeft: 4, fontWeight: 500 }}>Hole result</td>
-              {res.map((r, i) => <td key={i} style={{ ...cs, fontWeight: 500, color: r === 'A' ? TCOL.A : r === 'B' ? TCOL.B : r === 'H' ? '#888' : '#ddd' }}>{r === 'H' ? '½' : r || '·'}</td>)}
+              {res.slice(0,9).map((r, i) => <td key={i} style={{ ...cs, fontWeight: 500, color: r === 'A' ? TCOL.A : r === 'B' ? TCOL.B : r === 'H' ? '#888' : '#ddd' }}>{r === 'H' ? '½' : r || '·'}</td>)}
+              <td style={{ ...cs, background: '#f4f4f0' }} />
+              {res.slice(9).map((r, i) => <td key={i+9} style={{ ...cs, fontWeight: 500, color: r === 'A' ? TCOL.A : r === 'B' ? TCOL.B : r === 'H' ? '#888' : '#ddd' }}>{r === 'H' ? '½' : r || '·'}</td>)}
+              <td style={{ ...cs, background: '#f4f4f0' }} />
               <td />
             </tr>
             <tr>
               <td style={{ ...cs, textAlign: 'left', fontSize: 11, color: '#888', paddingLeft: 4 }}>Status</td>
-              {res.map((_, i) => {
+              {res.slice(0,9).map((_, i) => {
                 const sub = res.slice(0, i + 1) as (string | null)[];
                 const ss = matchStat(sub);
                 const txt = res[i] == null ? '' : ss.sc === 0 ? 'AS' : `${ss.sc > 0 ? 'A' : 'B'}${Math.abs(ss.sc)}${ss.closed ? '&' + ss.rem : ''}`;
                 return <td key={i} style={{ ...cs, fontSize: 10, color: ss.sc > 0 ? TCOL.A : ss.sc < 0 ? TCOL.B : '#bbb' }}>{txt}</td>;
               })}
+              <td style={{ ...cs, background: '#f4f4f0' }} />
+              {res.slice(9).map((_, i) => {
+                const sub = res.slice(0, i + 10) as (string | null)[];
+                const ss = matchStat(sub);
+                const txt = res[i+9] == null ? '' : ss.sc === 0 ? 'AS' : `${ss.sc > 0 ? 'A' : 'B'}${Math.abs(ss.sc)}${ss.closed ? '&' + ss.rem : ''}`;
+                return <td key={i+9} style={{ ...cs, fontSize: 10, color: ss.sc > 0 ? TCOL.A : ss.sc < 0 ? TCOL.B : '#bbb' }}>{txt}</td>;
+              })}
+              <td style={{ ...cs, background: '#f4f4f0' }} />
               <td />
             </tr>
           </tbody>
