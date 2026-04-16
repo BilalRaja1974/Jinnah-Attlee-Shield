@@ -936,122 +936,140 @@ function ScoreEntry({ day, matchId, pairings, players, course, scores, onSave, o
         </div>
       )}
 
-      <div style={{ ...S.card, padding: '0.5rem', overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 560 }}>
-          <thead>
-            <tr>
-              <th style={{ ...hs, textAlign: 'left', width: 120 }} />
-              {activeTeeOf(course).holes.slice(0, 9).map((_, i) => <th key={i} style={{ ...hs, minWidth: 34 }}>{i + 1}</th>)}
-              <th style={{ ...hs, minWidth: 36, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>Out</th>
-              {activeTeeOf(course).holes.slice(9).map((_, i) => <th key={i + 9} style={{ ...hs, minWidth: 34 }}>{i + 10}</th>)}
-              <th style={{ ...hs, minWidth: 36, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>In</th>
-              <th style={{ ...hs, minWidth: 40 }}>Save</th>
-            </tr>
-            <tr>
-              <td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>Par</td>
-              {activeTeeOf(course).holes.slice(0, 9).map((hole, i) => <td key={i} style={hs}>{hole.par}</td>)}
-              <td style={{ ...hs, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>{activeTeeOf(course).holes.slice(0,9).reduce((a,h) => a+h.par, 0)}</td>
-              {activeTeeOf(course).holes.slice(9).map((hole, i) => <td key={i+9} style={hs}>{hole.par}</td>)}
-              <td style={{ ...hs, background: '#f4f4f0', fontWeight: 500, color: '#555' }}>{activeTeeOf(course).holes.slice(9).reduce((a,h) => a+h.par, 0)}</td>
-              <td />
-            </tr>
-            <tr>
-              <td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>S.I.</td>
-              {activeTeeOf(course).holes.slice(0, 9).map((hole, i) => <td key={i} style={hs}>{hole.si}</td>)}
-              <td style={{ ...hs, background: '#f4f4f0' }} />
-              {activeTeeOf(course).holes.slice(9).map((hole, i) => <td key={i+9} style={hs}>{hole.si}</td>)}
-              <td style={{ ...hs, background: '#f4f4f0' }} />
-              <td />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIdx) => {
-              const label = rows.length <= 2
-                ? (rowIdx === 0 ? 'A' : 'B')
-                : (rowIdx === 0 || rowIdx === 1 ? 'A' : 'B');
-              const pairLabel = rows.length > 2
-                ? `${label}${rowIdx % 2 === 0 ? '1' : '2'}`
-                : label;
-              const outTotal = activeTeeOf(course).holes.slice(0,9).reduce((a, _, i) => {
-                const v = localScores[row.key]?.[i] ?? null;
-                return v != null ? a + v : a;
-              }, 0);
-              const inTotal = activeTeeOf(course).holes.slice(9).reduce((a, _, i) => {
-                const v = localScores[row.key]?.[i+9] ?? null;
-                return v != null ? a + v : a;
-              }, 0);
-              const outFilled = activeTeeOf(course).holes.slice(0,9).every((_, i) => localScores[row.key]?.[i] != null);
-              const inFilled = activeTeeOf(course).holes.slice(9).every((_, i) => localScores[row.key]?.[i+9] != null);
+      {/* Vertical scorecard — mobile friendly */}
+      {[
+        { label: 'Front 9', holeRange: [0,9] as [number,number] },
+        { label: 'Back 9', holeRange: [9,18] as [number,number] },
+      ].map(({ label, holeRange }) => {
+        const [start, end] = holeRange;
+        const sectionHoles = activeTeeOf(course).holes.slice(start, end);
+        const isOut = start === 0;
+        // Totals per row
+        const rowTotals = rows.map(row => {
+          const gross = sectionHoles.reduce((a, _, i) => {
+            const v = localScores[row.key]?.[start + i] ?? null;
+            return v != null ? a + v : a;
+          }, 0);
+          const filled = sectionHoles.every((_, i) => localScores[row.key]?.[start + i] != null);
+          return { gross, filled };
+        });
+        // Result counts for this half
+        const halfRes = res.slice(start, end);
+        const aWins = halfRes.filter(r => r === 'A').length;
+        const bWins = halfRes.filter(r => r === 'B').length;
+        const halved = halfRes.filter(r => r === 'H').length;
+        return (
+          <div key={label} style={{ ...S.card, padding: '0', marginBottom: '0.75rem', overflow: 'hidden' }}>
+            {/* Section header */}
+            <div style={{ display: 'grid', gridTemplateColumns: `80px 36px 28px ${rows.map(() => '1fr').join(' ')} 52px 52px`, gap: 0, background: '#f4f4f0', padding: '4px 8px', alignItems: 'center' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#555' }}>{label}</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>Par</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>SI</div>
+              {rows.map((row, ri) => {
+                const pl = rows.length <= 2 ? (ri === 0 ? 'A' : 'B') : (ri < 2 ? `A${ri+1}` : `B${ri-1}`);
+                return <div key={ri} style={{ fontSize: 10, color: TCOL[row.teamId], textAlign: 'center', fontWeight: 500 }}>{pl}<br/><span style={{ fontSize: 9, fontWeight: 400 }}>({row.hcp})</span></div>;
+              })}
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>Result</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>Status</div>
+            </div>
+
+            {/* Hole rows */}
+            {sectionHoles.map((hole, idx) => {
+              const hi = start + idx;
+              const r = res[hi];
+              const sub = res.slice(0, hi + 1) as (string | null)[];
+              const ss = matchStat(sub);
+              const statusTxt = r == null ? '' : ss.sc === 0 ? 'AS' : `${ss.sc > 0 ? 'A' : 'B'}${Math.abs(ss.sc)}${ss.closed ? '&' + ss.rem : ''}`;
+              const isEven = idx % 2 === 0;
               return (
-                <tr key={row.key}>
-                  <td style={{ ...cs, textAlign: 'left', fontWeight: 500, color: TCOL[row.teamId], paddingLeft: 4, whiteSpace: 'nowrap', fontSize: 11 }}>
-                    {pairLabel}: {row.label} ({row.hcp})
-                  </td>
-                  {activeTeeOf(course).holes.slice(0,9).map((hole, i) => {
-                    const val = localScores[row.key]?.[i] ?? null;
+                <div key={hi} style={{ display: 'grid', gridTemplateColumns: `80px 36px 28px ${rows.map(() => '1fr').join(' ')} 52px 52px`, gap: 0, background: isEven ? '#fff' : '#fafaf8', alignItems: 'center', borderTop: '1px solid #f0f0ec' }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#111', padding: '4px 8px' }}>Hole {hi + 1}</div>
+                  <div style={{ fontSize: 12, color: '#888', textAlign: 'center' }}>{hole.par}</div>
+                  <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center' }}>{hole.si}</div>
+                  {rows.map((row) => {
+                    const val = localScores[row.key]?.[hi] ?? null;
                     const net = val !== null ? val - shotsOnHole(row.shots, hole.si) : null;
                     const diff = net !== null ? net - hole.par : null;
                     const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
                     const fc = diff == null || diff === 0 ? '#111' : '#fff';
+                    const br = diff != null && diff <= -1 ? '50%' : '4px';
                     return (
-                      <td key={i} style={{ padding: 2 }}>
-                        <input type="number" min={1} max={15} value={val ?? ''} onChange={e => setScore(row.key, i, e.target.value)}
-                          style={{ width: 33, textAlign: 'center', padding: '3px 1px', border: '1px solid #ddd', borderRadius: 4, fontSize: 12, background: bg, color: fc }} />
-                      </td>
+                      <div key={row.key} style={{ display: 'flex', justifyContent: 'center', padding: '3px 2px' }}>
+                        <input type="number" min={1} max={15} value={val ?? ''} onChange={e => setScore(row.key, hi, e.target.value)}
+                          style={{ width: 38, height: 34, textAlign: 'center', border: '1px solid #ddd', borderRadius: br, fontSize: 14, fontWeight: 500, background: bg, color: fc, padding: 0 }} />
+                      </div>
                     );
                   })}
-                  <td style={{ ...cs, background: '#f4f4f0', fontWeight: 500, color: outFilled ? '#111' : '#bbb' }}>{outFilled ? outTotal : '—'}</td>
-                  {activeTeeOf(course).holes.slice(9).map((hole, i) => {
-                    const val = localScores[row.key]?.[i+9] ?? null;
-                    const net = val !== null ? val - shotsOnHole(row.shots, hole.si) : null;
-                    const diff = net !== null ? net - hole.par : null;
-                    const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
-                    const fc = diff == null || diff === 0 ? '#111' : '#fff';
-                    return (
-                      <td key={i+9} style={{ padding: 2 }}>
-                        <input type="number" min={1} max={15} value={val ?? ''} onChange={e => setScore(row.key, i+9, e.target.value)}
-                          style={{ width: 33, textAlign: 'center', padding: '3px 1px', border: '1px solid #ddd', borderRadius: 4, fontSize: 12, background: bg, color: fc }} />
-                      </td>
-                    );
-                  })}
-                  <td style={{ ...cs, background: '#f4f4f0', fontWeight: 500, color: inFilled ? '#111' : '#bbb' }}>{inFilled ? inTotal : '—'}</td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <button onClick={() => saveRow(row.key)} disabled={saving === row.key} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd', background: saving === row.key ? '#f0f0ec' : '#111', color: saving === row.key ? '#888' : '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      {saving === row.key ? '…' : 'Save'}
-                    </button>
-                  </td>
-                </tr>
+                  <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: r === 'A' ? TCOL.A : r === 'B' ? TCOL.B : r === 'H' ? '#888' : '#ddd' }}>
+                    {r === 'H' ? '½' : r || '·'}
+                  </div>
+                  <div style={{ textAlign: 'center', fontSize: 10, color: ss.sc > 0 ? TCOL.A : ss.sc < 0 ? TCOL.B : '#bbb' }}>{statusTxt}</div>
+                </div>
               );
             })}
-            <tr>
-              <td style={{ ...cs, textAlign: 'left', fontSize: 11, color: '#888', paddingLeft: 4, fontWeight: 500 }}>Hole result</td>
-              {res.slice(0,9).map((r, i) => <td key={i} style={{ ...cs, fontWeight: 500, color: r === 'A' ? TCOL.A : r === 'B' ? TCOL.B : r === 'H' ? '#888' : '#ddd' }}>{r === 'H' ? '½' : r || '·'}</td>)}
-              <td style={{ ...cs, background: '#f4f4f0' }} />
-              {res.slice(9).map((r, i) => <td key={i+9} style={{ ...cs, fontWeight: 500, color: r === 'A' ? TCOL.A : r === 'B' ? TCOL.B : r === 'H' ? '#888' : '#ddd' }}>{r === 'H' ? '½' : r || '·'}</td>)}
-              <td style={{ ...cs, background: '#f4f4f0' }} />
-              <td />
-            </tr>
-            <tr>
-              <td style={{ ...cs, textAlign: 'left', fontSize: 11, color: '#888', paddingLeft: 4 }}>Status</td>
-              {res.slice(0,9).map((_, i) => {
-                const sub = res.slice(0, i + 1) as (string | null)[];
-                const ss = matchStat(sub);
-                const txt = res[i] == null ? '' : ss.sc === 0 ? 'AS' : `${ss.sc > 0 ? 'A' : 'B'}${Math.abs(ss.sc)}${ss.closed ? '&' + ss.rem : ''}`;
-                return <td key={i} style={{ ...cs, fontSize: 10, color: ss.sc > 0 ? TCOL.A : ss.sc < 0 ? TCOL.B : '#bbb' }}>{txt}</td>;
+
+            {/* OUT/IN summary row */}
+            <div style={{ display: 'grid', gridTemplateColumns: `80px 36px 28px ${rows.map(() => '1fr').join(' ')} 52px 52px`, gap: 0, background: '#f4f4f0', borderTop: '2px solid #e0e0dc', alignItems: 'center', padding: '4px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#555', paddingLeft: 8 }}>{isOut ? 'Out' : 'In'}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: '#555', textAlign: 'center' }}>{sectionHoles.reduce((a,h) => a+h.par,0)}</div>
+              <div />
+              {rows.map((row, ri) => (
+                <div key={ri} style={{ textAlign: 'center', fontSize: 13, fontWeight: 600, color: rowTotals[ri].filled ? '#111' : '#bbb', padding: '2px 0' }}>
+                  {rowTotals[ri].filled ? rowTotals[ri].gross : '—'}
+                </div>
+              ))}
+              <div style={{ textAlign: 'center', fontSize: 10, color: '#888' }}>{aWins}A {halved}½ {bWins}B</div>
+              <div />
+            </div>
+
+            {/* Save buttons row */}
+            <div style={{ display: 'flex', gap: 8, padding: '8px', borderTop: '1px solid #f0f0ec', background: '#fff', flexWrap: 'wrap' }}>
+              {rows.map((row, ri) => {
+                const pl = rows.length <= 2 ? (ri === 0 ? 'A' : 'B') : (ri < 2 ? `A${ri+1}` : `B${ri-1}`);
+                return (
+                  <button key={row.key} onClick={() => saveRow(row.key)} disabled={saving === row.key}
+                    style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid #ddd', background: saving === row.key ? '#f4f4f0' : '#111', color: saving === row.key ? '#888' : '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 500, minWidth: 80 }}>
+                    {saving === row.key ? 'Saving…' : `Save ${pl}`}
+                  </button>
+                );
               })}
-              <td style={{ ...cs, background: '#f4f4f0' }} />
-              {res.slice(9).map((_, i) => {
-                const sub = res.slice(0, i + 10) as (string | null)[];
-                const ss = matchStat(sub);
-                const txt = res[i+9] == null ? '' : ss.sc === 0 ? 'AS' : `${ss.sc > 0 ? 'A' : 'B'}${Math.abs(ss.sc)}${ss.closed ? '&' + ss.rem : ''}`;
-                return <td key={i+9} style={{ ...cs, fontSize: 10, color: ss.sc > 0 ? TCOL.A : ss.sc < 0 ? TCOL.B : '#bbb' }}>{txt}</td>;
-              })}
-              <td style={{ ...cs, background: '#f4f4f0' }} />
-              <td />
-            </tr>
-          </tbody>
-        </table>
-      </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Grand total row */}
+      {rows.some(row => activeTeeOf(course).holes.every((_, i) => localScores[row.key]?.[i] != null)) && (
+        <div style={{ ...S.card, padding: '0.75rem 1rem', background: '#f4f4f0', border: 'none' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#555', marginBottom: 8 }}>Total</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {rows.map((row, ri) => {
+              const pl = rows.length <= 2 ? (ri === 0 ? 'A' : 'B') : (ri < 2 ? `A${ri+1}` : `B${ri-1}`);
+              const outG = activeTeeOf(course).holes.slice(0,9).reduce((a,_,i) => { const v=localScores[row.key]?.[i]??null; return v!=null?a+v:a; },0);
+              const inG = activeTeeOf(course).holes.slice(9).reduce((a,_,i) => { const v=localScores[row.key]?.[i+9]??null; return v!=null?a+v:a; },0);
+              const outF = activeTeeOf(course).holes.slice(0,9).every((_,i) => localScores[row.key]?.[i]!=null);
+              const inF = activeTeeOf(course).holes.slice(9).every((_,i) => localScores[row.key]?.[i+9]!=null);
+              const total = outG + inG;
+              const par = activeTeeOf(course).holes.reduce((a,h) => a+h.par,0);
+              const diff = total - par;
+              return (
+                <div key={ri} style={{ flex: 1, minWidth: 100, background: '#fff', borderRadius: 10, padding: '0.6rem 0.75rem', textAlign: 'center', border: '1px solid #e8e8e4' }}>
+                  <div style={{ fontSize: 11, color: TCOL[row.teamId], fontWeight: 500, marginBottom: 4 }}>{pl}: {row.label.split(' ')[0]}</div>
+                  {outF && inF ? (
+                    <>
+                      <div style={{ fontSize: 22, fontWeight: 600, color: '#111', lineHeight: 1 }}>{total}</div>
+                      <div style={{ fontSize: 11, color: diff < 0 ? TCOL.A : diff > 0 ? '#E24B4A' : '#888', marginTop: 2 }}>{diff > 0 ? `+${diff}` : diff === 0 ? 'E' : diff}</div>
+                      <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>{outG} + {inG}</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 13, color: '#bbb' }}>—</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1092,51 +1110,89 @@ function Scorecard({ day, pid, players, course, scores, onBack }: { day: number;
           </div>
         </div>
       </div>
-      <div style={{ ...S.card, padding: '0.5rem', overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 520 }}>
-          <thead>
-            <tr><th style={{ ...hs, textAlign: 'left', width: 60 }}>Hole</th>{teeData.holes.map((_, i) => <th key={i} style={{ ...hs, minWidth: 32 }}>{i + 1}</th>)}</tr>
-            <tr><td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>Par</td>{teeData.holes.map((h, i) => <td key={i} style={hs}>{h.par}</td>)}</tr>
-            <tr><td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>S.I.</td>{teeData.holes.map((h, i) => <td key={i} style={hs}>{h.si}</td>)}</tr>
-            {phVal !== null && <tr><td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>Shots</td>{teeData.holes.map((h, i) => <td key={i} style={hs}>{shotsOnHole(phVal, h.si) || ''}</td>)}</tr>}
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{ ...cs, textAlign: 'left', fontWeight: 500, color: TCOL[player?.teamId], paddingLeft: 4 }}>Gross</td>
-              {activeTeeOf(course).holes.map((hole, i) => {
-                const s = raw[i]; const diff = s ? s - hole.par : null;
-                const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
-                const fc = diff == null || diff === 0 ? '#111' : '#fff';
-                const br = diff != null && diff <= -1 ? '50%' : diff === 1 ? '3px' : diff != null && diff >= 2 ? '2px' : '4px';
-                return (
-                  <td key={i} style={{ padding: 2 }}>
-                    {s ? <div style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: br, background: bg, color: fc, fontSize: 12, fontWeight: 500, margin: '0 auto' }}>{s}</div>
-                      : <div style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px', border: '1px solid #eee', margin: '0 auto' }} />}
-                  </td>
-                );
-              })}
-            </tr>
-            {phVal !== null && (
-              <tr>
-                <td style={{ ...cs, textAlign: 'left', color: '#888', paddingLeft: 4 }}>Net</td>
-                {teeData.holes.map((h, i) => { const s = raw[i]; return <td key={i} style={{ ...cs, color: '#888' }}>{s ? s - shotsOnHole(phVal, h.si) : ''}</td>; })}
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {tot > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginTop: '0.75rem' }}>
-          {[
-            { lbl: 'Gross', val: tot, col: '#111' },
-            { lbl: 'To par', val: tot - parTot > 0 ? `+${tot - parTot}` : tot - parTot, col: tot - parTot < 0 ? TCOL.A : tot - parTot > 0 ? '#E24B4A' : '#111' },
-            ...(netTot !== null ? [{ lbl: 'Net', val: netTot, col: '#111' }] : []),
-          ].map(({ lbl, val, col }) => (
-            <div key={lbl} style={{ flex: 1, background: '#f4f4f0', borderRadius: 8, padding: '0.75rem', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>{lbl}</div>
-              <div style={{ fontSize: 24, fontWeight: 500, color: col }}>{val}</div>
+      {[{ label: 'Front 9', start: 0, end: 9 }, { label: 'Back 9', start: 9, end: 18 }].map(({ label, start, end }) => {
+        const sectionHoles = teeData.holes.slice(start, end);
+        const sectionGross = sectionHoles.reduce((a, _, i) => { const s = raw[start + i]; return s ? a + s : a; }, 0);
+        const sectionFilled = sectionHoles.every((_, i) => raw[start + i] != null);
+        const sectionPar = sectionHoles.reduce((a, h) => a + h.par, 0);
+        return (
+          <div key={label} style={{ ...S.card, padding: 0, marginBottom: '0.75rem', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: phVal !== null ? '80px 32px 26px 1fr 1fr' : '80px 32px 26px 1fr', background: '#f4f4f0', padding: '5px 8px', gap: 0, alignItems: 'center' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#555' }}>{label}</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>Par</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>SI</div>
+              <div style={{ fontSize: 10, color: TCOL[player?.teamId], textAlign: 'center', fontWeight: 500 }}>Gross</div>
+              {phVal !== null && <div style={{ fontSize: 10, color: '#888', textAlign: 'center' }}>Net</div>}
             </div>
-          ))}
+            {sectionHoles.map((hole, idx) => {
+              const hi = start + idx;
+              const s = raw[hi];
+              const net = s != null && phVal !== null ? s - shotsOnHole(phVal, hole.si) : null;
+              const grossDiff = s != null ? s - hole.par : null;
+              const netDiff = net !== null ? net - hole.par : null;
+              const bg = grossDiff == null ? 'transparent' : grossDiff <= -2 ? '#185FA5' : grossDiff === -1 ? '#1D9E75' : grossDiff === 0 ? 'transparent' : grossDiff === 1 ? '#E24B4A' : '#A32D2D';
+              const fc = grossDiff == null || grossDiff === 0 ? '#111' : '#fff';
+              const br = grossDiff != null && grossDiff <= -1 ? '50%' : grossDiff === 1 ? '3px' : '4px';
+              const shots = phVal !== null ? shotsOnHole(phVal, hole.si) : 0;
+              return (
+                <div key={hi} style={{ display: 'grid', gridTemplateColumns: phVal !== null ? '80px 32px 26px 1fr 1fr' : '80px 32px 26px 1fr', alignItems: 'center', borderTop: '1px solid #f0f0ec', background: idx % 2 === 0 ? '#fff' : '#fafaf8', minHeight: 36 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#111', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Hole {hi + 1}
+                    {shots > 0 && <span style={{ fontSize: 9, background: TCOL[player?.teamId], color: '#fff', borderRadius: 999, padding: '1px 4px' }}>{shots > 1 ? `+${shots}` : '+'}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888', textAlign: 'center' }}>{hole.par}</div>
+                  <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center' }}>{hole.si}</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '3px 4px' }}>
+                    {s != null
+                      ? <div style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: br, background: bg, color: fc, fontSize: 14, fontWeight: 600 }}>{s}</div>
+                      : <div style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px', border: '1px solid #eee', color: '#ddd', fontSize: 11 }}>—</div>
+                    }
+                  </div>
+                  {phVal !== null && (
+                    <div style={{ textAlign: 'center', fontSize: 13, color: netDiff != null && netDiff < 0 ? TCOL.A : netDiff != null && netDiff > 0 ? '#E24B4A' : '#888', fontWeight: netDiff === 0 ? 400 : 500 }}>
+                      {net !== null ? net : '—'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {/* Section total row */}
+            <div style={{ display: 'grid', gridTemplateColumns: phVal !== null ? '80px 32px 26px 1fr 1fr' : '80px 32px 26px 1fr', background: '#f0f0ec', borderTop: '2px solid #e0e0dc', alignItems: 'center', padding: '5px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#555', paddingLeft: 8 }}>{label === 'Front 9' ? 'Out' : 'In'}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: '#555', textAlign: 'center' }}>{sectionPar}</div>
+              <div />
+              <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 600, color: sectionFilled ? '#111' : '#bbb' }}>{sectionFilled ? sectionGross : '—'}</div>
+              {phVal !== null && (
+                <div style={{ textAlign: 'center', fontSize: 13, color: '#888' }}>
+                  {sectionFilled ? sectionGross - sectionHoles.reduce((a,_,i) => a + shotsOnHole(phVal, sectionHoles[i].si), 0) : '—'}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Grand total */}
+      {tot > 0 && (
+        <div style={{ ...S.card, padding: '0.75rem', background: '#f4f4f0', border: 'none', marginBottom: '0.75rem' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#555', marginBottom: 8 }}>Total</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { lbl: 'Out', val: teeData.holes.slice(0,9).reduce((a,_,i) => { const s=raw[i]; return s?a+s:a; },0), filled: teeData.holes.slice(0,9).every((_,i) => raw[i]!=null) },
+              { lbl: 'In', val: teeData.holes.slice(9).reduce((a,_,i) => { const s=raw[i+9]; return s?a+s:a; },0), filled: teeData.holes.slice(9).every((_,i) => raw[i+9]!=null) },
+              { lbl: 'Gross', val: tot, filled: true },
+              ...(netTot !== null ? [{ lbl: 'Net', val: netTot, filled: true }] : []),
+            ].map(({ lbl, val, filled }) => {
+              const diff = (lbl === 'Gross' || lbl === 'Net') ? val - parTot : null;
+              return (
+                <div key={lbl} style={{ flex: 1, background: '#fff', borderRadius: 8, padding: '0.6rem 0.5rem', textAlign: 'center', border: '1px solid #e8e8e4' }}>
+                  <div style={{ fontSize: 10, color: '#aaa', marginBottom: 3 }}>{lbl}</div>
+                  <div style={{ fontSize: 20, fontWeight: 600, color: filled ? '#111' : '#bbb' }}>{filled ? val : '—'}</div>
+                  {diff !== null && filled && <div style={{ fontSize: 10, color: diff < 0 ? TCOL.A : diff > 0 ? '#E24B4A' : '#888', marginTop: 2 }}>{diff > 0 ? `+${diff}` : diff === 0 ? 'E' : diff}</div>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -1320,61 +1376,87 @@ function Day4Card({ pid, players, course, scores, onSave, onBack }: { pid: strin
         </div>
       </div>
 
-      <div style={{ ...S.card, padding: '0.5rem', overflowX: 'auto', marginBottom: '0.75rem' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 560 }}>
-          <thead>
-            <tr>
-              <th style={{ ...hs, textAlign: 'left', width: 50 }} />
-              {teeData.holes.map((_, i) => <th key={i} style={{ ...hs, minWidth: 34 }}>{i + 1}</th>)}
-              <th style={{ ...hs, minWidth: 40 }}>Save</th>
-            </tr>
-            <tr><td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>Par</td>{teeData.holes.map((h, i) => <td key={i} style={hs}>{h.par}</td>)}<td /></tr>
-            <tr><td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>S.I.</td>{teeData.holes.map((h, i) => <td key={i} style={hs}>{h.si}</td>)}<td /></tr>
-            {ph !== null && <tr><td style={{ ...hs, textAlign: 'left', fontWeight: 400 }}>Shots</td>{teeData.holes.map((h, i) => <td key={i} style={hs}>{shotsOnHole(ph, h.si) || ''}</td>)}<td /></tr>}
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{ ...cs, textAlign: 'left', fontWeight: 500, color: TCOL[player?.teamId], paddingLeft: 4 }}>Gross</td>
-              {teeData.holes.map((hole, i) => {
-                const s = raw[i]; const diff = s != null ? s - hole.par : null;
-                const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
-                const fc = diff == null || diff === 0 ? '#111' : '#fff';
-                return (
-                  <td key={i} style={{ padding: 2 }}>
-                    <input type="number" min={1} max={15} value={s ?? ''} onChange={e => setScore(i, e.target.value)}
-                      style={{ width: 33, textAlign: 'center', padding: '3px 1px', border: '1px solid #ddd', borderRadius: 4, fontSize: 12, background: bg, color: fc }} />
-                  </td>
-                );
-              })}
-              <td style={{ padding: '2px 4px' }}>
-                <button onClick={save} disabled={saving} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd', background: saving ? '#f0f0ec' : '#111', color: saving ? '#888' : '#fff', cursor: 'pointer' }}>
-                  {saving ? '…' : saved ? '✓' : 'Save'}
-                </button>
-              </td>
-            </tr>
-            {ph !== null && (
-              <tr>
-                <td style={{ ...cs, textAlign: 'left', color: '#888', paddingLeft: 4 }}>Net</td>
-                {teeData.holes.map((h, i) => { const s = raw[i]; return <td key={i} style={{ ...cs, color: '#888' }}>{s != null ? s - shotsOnHole(ph, h.si) : ''}</td>; })}
-                <td />
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {[{ label: 'Front 9', start: 0, end: 9 }, { label: 'Back 9', start: 9, end: 18 }].map(({ label, start, end }) => {
+        const sectionHoles = teeData.holes.slice(start, end);
+        const sectionGross = sectionHoles.reduce((a, _, i) => { const s = raw[start + i]; return s != null ? a + s : a; }, 0);
+        const sectionFilled = sectionHoles.every((_, i) => raw[start + i] != null);
+        const sectionPar = sectionHoles.reduce((a, h) => a + h.par, 0);
+        return (
+          <div key={label} style={{ ...S.card, padding: 0, marginBottom: '0.75rem', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: ph !== null ? '80px 32px 26px 1fr 1fr' : '80px 32px 26px 1fr', background: '#f4f4f0', padding: '5px 8px', alignItems: 'center' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#555' }}>{label}</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>Par</div>
+              <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center' }}>SI</div>
+              <div style={{ fontSize: 10, color: TCOL[player?.teamId], textAlign: 'center', fontWeight: 500 }}>Gross</div>
+              {ph !== null && <div style={{ fontSize: 10, color: '#888', textAlign: 'center' }}>Net</div>}
+            </div>
+            {sectionHoles.map((hole, idx) => {
+              const hi = start + idx;
+              const s = raw[hi];
+              const net = s != null && ph !== null ? s - shotsOnHole(ph, hole.si) : null;
+              const diff = s != null ? s - hole.par : null;
+              const netDiff = net !== null ? net - hole.par : null;
+              const bg = diff == null ? 'transparent' : diff <= -2 ? '#185FA5' : diff === -1 ? '#1D9E75' : diff === 0 ? 'transparent' : diff === 1 ? '#E24B4A' : '#A32D2D';
+              const fc = diff == null || diff === 0 ? '#111' : '#fff';
+              const br = diff != null && diff <= -1 ? '50%' : diff === 1 ? '3px' : '4px';
+              const shots = ph !== null ? shotsOnHole(ph, hole.si) : 0;
+              return (
+                <div key={hi} style={{ display: 'grid', gridTemplateColumns: ph !== null ? '80px 32px 26px 1fr 1fr' : '80px 32px 26px 1fr', alignItems: 'center', borderTop: '1px solid #f0f0ec', background: idx % 2 === 0 ? '#fff' : '#fafaf8', minHeight: 44 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#111', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Hole {hi + 1}
+                    {shots > 0 && <span style={{ fontSize: 9, background: TCOL[player?.teamId], color: '#fff', borderRadius: 999, padding: '1px 4px' }}>{shots > 1 ? `+${shots}` : '+'}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888', textAlign: 'center' }}>{hole.par}</div>
+                  <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center' }}>{hole.si}</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '4px' }}>
+                    <input type="number" min={1} max={15} value={s ?? ''} onChange={e => setScore(hi, e.target.value)}
+                      style={{ width: 42, height: 38, textAlign: 'center', border: '1px solid #ddd', borderRadius: br, fontSize: 16, fontWeight: 500, background: bg, color: fc, padding: 0 }} />
+                  </div>
+                  {ph !== null && (
+                    <div style={{ textAlign: 'center', fontSize: 13, color: netDiff != null && netDiff < 0 ? TCOL.A : netDiff != null && netDiff > 0 ? '#E24B4A' : '#888', fontWeight: netDiff === 0 ? 400 : 500 }}>
+                      {net !== null ? net : '—'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ display: 'grid', gridTemplateColumns: ph !== null ? '80px 32px 26px 1fr 1fr' : '80px 32px 26px 1fr', background: '#f0f0ec', borderTop: '2px solid #e0e0dc', alignItems: 'center', padding: '5px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#555', paddingLeft: 8 }}>{label === 'Front 9' ? 'Out' : 'In'}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: '#555', textAlign: 'center' }}>{sectionPar}</div>
+              <div />
+              <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 600, color: sectionFilled ? '#111' : '#bbb' }}>{sectionFilled ? sectionGross : '—'}</div>
+              {ph !== null && <div style={{ textAlign: 'center', fontSize: 13, color: '#888' }}>{sectionFilled ? sectionGross - sectionHoles.reduce((a,_,i) => a + shotsOnHole(ph, sectionHoles[i].si), 0) : '—'}</div>}
+            </div>
+          </div>
+        );
+      })}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: '0.75rem' }}>
+        <button onClick={save} disabled={saving} style={{ flex: 1, padding: '10px', borderRadius: 10, border: '1px solid #ddd', background: saving ? '#f4f4f0' : '#111', color: saving ? '#888' : '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
+          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save scorecard'}
+        </button>
       </div>
 
       {tot > 0 && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { lbl: 'Gross', val: tot, col: '#111' },
-            { lbl: 'To par', val: tot - parTot > 0 ? `+${tot - parTot}` : tot - parTot, col: tot - parTot < 0 ? TCOL.A : tot - parTot > 0 ? '#E24B4A' : '#111' },
-            ...(netTot !== null ? [{ lbl: 'Net', val: netTot, col: '#111' }] : []),
-          ].map(({ lbl, val, col }) => (
-            <div key={lbl} style={{ flex: 1, background: '#f4f4f0', borderRadius: 8, padding: '0.75rem', textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>{lbl}</div>
-              <div style={{ fontSize: 24, fontWeight: 500, color: col }}>{val}</div>
-            </div>
-          ))}
+        <div style={{ ...S.card, padding: '0.75rem', background: '#f4f4f0', border: 'none' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#555', marginBottom: 8 }}>Total</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[
+              { lbl: 'Out', val: teeData.holes.slice(0,9).reduce((a,_,i) => { const s=raw[i]; return s!=null?a+s:a; },0), filled: teeData.holes.slice(0,9).every((_,i) => raw[i]!=null) },
+              { lbl: 'In', val: teeData.holes.slice(9).reduce((a,_,i) => { const s=raw[i+9]; return s!=null?a+s:a; },0), filled: teeData.holes.slice(9).every((_,i) => raw[i+9]!=null) },
+              { lbl: 'Gross', val: tot, filled: true },
+              ...(netTot !== null ? [{ lbl: 'Net', val: netTot, filled: true }] : []),
+            ].map(({ lbl, val, filled }) => {
+              const diff = (lbl === 'Gross' || lbl === 'Net') ? val - parTot : null;
+              return (
+                <div key={lbl} style={{ flex: 1, background: '#fff', borderRadius: 8, padding: '0.6rem 0.5rem', textAlign: 'center', border: '1px solid #e8e8e4' }}>
+                  <div style={{ fontSize: 10, color: '#aaa', marginBottom: 3 }}>{lbl}</div>
+                  <div style={{ fontSize: 20, fontWeight: 600, color: filled ? '#111' : '#bbb' }}>{filled ? val : '—'}</div>
+                  {diff !== null && filled && <div style={{ fontSize: 10, color: diff < 0 ? TCOL.A : diff > 0 ? '#E24B4A' : '#888', marginTop: 2 }}>{diff > 0 ? `+${diff}` : diff === 0 ? 'E' : diff}</div>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
