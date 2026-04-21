@@ -587,115 +587,149 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
         </div>
       )}
 
-      {/* Sticky player name header */}
-      <div style={{position:'sticky',top:56,zIndex:15,background:C.dark,borderRadius:10,padding:'8px 12px',marginBottom:'0.75rem',display:'grid',
-        gridTemplateColumns:`70px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 50px`,gap:4,alignItems:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.25)'}}>
-        <div style={{fontSize:10,color:'#6B7280'}}>Player</div>
-        <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>Par</div>
-        <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>SI</div>
-        {rows.map((row,ri)=>(
-          <div key={ri} style={{textAlign:'center',padding:'0 2px'}}>
-            <div style={{fontSize:11,fontWeight:800,color:TCOL[row.teamId]}}>{pairLabel(ri)}</div>
-            <div style={{fontSize:9,color:'#9CA3AF',lineHeight:1.2,marginTop:1}}>{row.label.split(' ')[0]}</div>
-            <div style={{fontSize:9,color:'#6B7280'}}>HCP {row.hcp}</div>
-          </div>
-        ))}
-        <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>Res</div>
-        <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>Stat</div>
+      {/* ── Sticky player name card ── */}
+      <div style={{position:'sticky',top:56,zIndex:15,marginBottom:'0.75rem',
+        background:C.dark,borderRadius:12,overflow:'hidden',boxShadow:'0 4px 12px rgba(0,0,0,0.3)'}}>
+        {/* Team rows */}
+        {rows.map((row,ri)=>{
+          const isA=row.teamId==='A';
+          const teamCol=isA?C.pakGreen:C.engNavy;
+          const teamBg=isA?'#022d13':'#011540';
+          const pl=pairLabel(ri);
+          // For fourball show both player names in the pair
+          const partnerRow=rows.length>2?(ri%2===0?rows[ri+1]:rows[ri-1]):null;
+          if(rows.length>2&&ri%2!==0&&ri>0&&rows[ri-1].teamId===row.teamId) return null; // skip second of pair, shown together
+          const names=partnerRow?`${row.label} · ${partnerRow.label}`:row.label;
+          const hcpLabel=partnerRow?`HCP ${row.hcp} · ${partnerRow.hcp}`:`HCP ${row.hcp}`;
+          return (
+            <div key={ri} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+              padding:'10px 14px',background:teamBg,borderBottom:ri<rows.length-1?`1px solid rgba(255,255,255,0.08)`:'none'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{background:teamCol,borderRadius:6,padding:'3px 8px',minWidth:36,textAlign:'center'}}>
+                  <div style={{fontSize:11,fontWeight:800,color:C.white,letterSpacing:'0.04em'}}>{pl}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.white}}>{names}</div>
+                  <div style={{fontSize:11,color:'rgba(255,255,255,0.45)',marginTop:1}}>{hcpLabel}</div>
+                </div>
+              </div>
+              <SaveIndicator state={saveState[row.key]||'idle'}/>
+            </div>
+          );
+        })}
+        {/* Column header row */}
+        <div style={{display:'grid',
+          gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+          gap:2,padding:'6px 8px',background:'rgba(255,255,255,0.05)',alignItems:'center'}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:'0.06em'}}>HOLE</div>
+          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>Par</div>
+          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>SI</div>
+          {rows.map((row,ri)=>(
+            <div key={ri} style={{textAlign:'center'}}>
+              <div style={{fontSize:11,fontWeight:800,color:TCOL[row.teamId]=== C.pakGreen?'#4ADE80':'#60A5FA'}}>{pairLabel(ri)}</div>
+            </div>
+          ))}
+          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>Res</div>
+          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>Status</div>
+        </div>
       </div>
 
-      {/* Vertical scorecard sections */}
-      {[{label:'Front 9',start:0,end:9},{label:'Back 9',start:9,end:18}].map(({label,start,end})=>{
-        const sHoles=tee.holes.slice(start,end);
-        return (
-          <div key={label} style={{...card,padding:0,overflow:'hidden',marginBottom:'1rem'}}>
-            {/* Column headers */}
-            <div style={{background:C.dark,padding:'8px 12px',display:'grid',
-              gridTemplateColumns:`70px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 50px`,
-              gap:4,alignItems:'center'}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.gold}}>{label}</div>
-              <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>Par</div>
-              <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>SI</div>
-              {rows.map((row,ri)=>(
-                <div key={ri} style={{textAlign:'center'}}>
-                  <div style={{fontSize:11,fontWeight:700,color:TCOL[row.teamId]}}>{pairLabel(ri)}</div>
-                  <div style={{fontSize:9,color:'#6B7280'}}>HCP {row.hcp}</div>
-                </div>
-              ))}
-              <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>Res</div>
-              <div style={{fontSize:10,color:'#6B7280',textAlign:'center'}}>Status</div>
-            </div>
-
-            {/* Hole rows */}
-            {sHoles.map((hole,idx)=>{
-              const hi=start+idx;
-              const r=res[hi];
-              const sub=res.slice(0,hi+1) as (string|null)[];
-              const ss=matchStat(sub);
-              const statusTxt=r==null?'':ss.sc===0?'AS':`${ss.sc>0?'A':'B'}${Math.abs(ss.sc)}${ss.closed?'&'+ss.rem:''}`;
-              const isEven=idx%2===0;
-              return (
-                <div key={hi} style={{display:'grid',
-                  gridTemplateColumns:`70px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 50px`,
-                  gap:4,alignItems:'center',background:isEven?C.white:'#F9FAFB',
-                  borderTop:`1px solid ${C.border}`,minHeight:48,padding:'2px 4px'}}>
-                  <div style={{fontSize:12,fontWeight:600,color:C.dark,paddingLeft:8}}>H{hi+1}</div>
-                  <div style={{fontSize:12,color:C.mid,textAlign:'center'}}>{hole.par}</div>
-                  <div style={{fontSize:11,color:'#9CA3AF',textAlign:'center'}}>{hole.si}</div>
-                  {rows.map((row)=>{
-                    const val=localScores[row.key]?.[hi]??null;
-                    const net=val!==null?val-shotsOnHole(row.shots,hole.si):null;
-                    const diff=net!==null?net-hole.par:null;
-                    const bg=diff==null?'transparent':diff<=-2?C.engNavy:diff===-1?C.pakGreen:diff===0?'transparent':diff===1?'#EF4444':'#991B1B';
-                    const fc=diff==null||diff===0?C.dark:C.white;
-                    const br=diff!=null&&diff<=-1?'50%':'6px';
-                    const shots=shotsOnHole(row.shots,hole.si);
-                    return (
-                      <div key={row.key} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:1}}>
-                        {shots>0&&<div style={{fontSize:8,color:TCOL[row.teamId],fontWeight:700,lineHeight:1}}>{shots>1?`+${shots}`:'+'}▸</div>}
-                        <input type="number" inputMode="numeric" min={1} max={15} value={val??''} onChange={e=>setScore(row.key,hi,e.target.value)}
-                          style={{width:38,height:38,textAlign:'center',border:`1.5px solid ${diff!=null?bg:C.border}`,borderRadius:br,fontSize:15,fontWeight:700,background:bg,color:fc,padding:0,outline:'none'}}/>
-                      </div>
-                    );
-                  })}
-                  <div style={{textAlign:'center',fontSize:13,fontWeight:700,
-                    color:r==='A'?TCOL.A:r==='B'?TCOL.B:r==='H'?C.mid:'#D1D5DB'}}>
-                    {r==='H'?'½':r||'·'}
-                  </div>
-                  <div style={{textAlign:'center',fontSize:10,fontWeight:600,
-                    color:ss.sc>0?TCOL.A:ss.sc<0?TCOL.B:'#9CA3AF'}}>{statusTxt}</div>
-                </div>
-              );
-            })}
-
-            {/* Section totals */}
-            <div style={{display:'grid',
-              gridTemplateColumns:`70px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 50px`,
-              gap:4,background:'#F3F4F6',borderTop:`2px solid ${C.border}`,padding:'6px 4px',alignItems:'center'}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.mid,paddingLeft:8}}>{start===0?'Out':'In'}</div>
-              <div style={{fontSize:11,fontWeight:600,color:C.mid,textAlign:'center'}}>{sHoles.reduce((a,h)=>a+h.par,0)}</div>
+      {/* ── Scorecard — continuous holes 1–18 with Out/In dividers ── */}
+      <div style={{...card,padding:0,overflow:'hidden',marginBottom:'0.75rem'}}>
+        {tee.holes.map((hole,hi)=>{
+          const r=res[hi];
+          const sub=res.slice(0,hi+1) as (string|null)[];
+          const ss=matchStat(sub);
+          const statusTxt=r==null?'':ss.sc===0?'AS':`${ss.sc>0?'PK':'EN'}${Math.abs(ss.sc)}${ss.closed?'&'+ss.rem:''}`;
+          const isEven=hi%2===0;
+          const isOut=hi===8; // after hole 9
+          const outRow=isOut?(
+            <div key={`out`} style={{display:'grid',
+              gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+              gap:2,background:'#1F2937',padding:'7px 8px',alignItems:'center',
+              borderTop:'2px solid #374151',borderBottom:'2px solid #374151'}}>
+              <div style={{fontSize:11,fontWeight:800,color:C.gold,letterSpacing:'0.06em',paddingLeft:4}}>OUT</div>
+              <div style={{fontSize:11,fontWeight:700,color:'#E5E7EB',textAlign:'center'}}>{tee.holes.slice(0,9).reduce((a,h)=>a+h.par,0)}</div>
               <div/>
               {rows.map((row,ri)=>{
-                const gross=sHoles.reduce((a,_,i)=>{const v=localScores[row.key]?.[start+i]??null;return v!=null?a+v:a;},0);
-                const filled=sHoles.every((_,i)=>localScores[row.key]?.[start+i]!=null);
-                return <div key={ri} style={{textAlign:'center',fontSize:14,fontWeight:700,color:filled?C.dark:'#D1D5DB'}}>{filled?gross:'—'}</div>;
+                const gross=tee.holes.slice(0,9).reduce((a,_,i)=>{const v=localScores[row.key]?.[i]??null;return v!=null?a+v:a;},0);
+                const filled=tee.holes.slice(0,9).every((_,i)=>localScores[row.key]?.[i]!=null);
+                const teamAccent=row.teamId==='A'?'#4ADE80':'#60A5FA';
+                return <div key={ri} style={{textAlign:'center',fontSize:14,fontWeight:800,color:filled?teamAccent:'#4B5563'}}>{filled?gross:'—'}</div>;
               })}
-              <div style={{textAlign:'center',fontSize:10,color:C.mid}}>
-                {res.slice(start,end).filter(r=>r==='A').length}A {res.slice(start,end).filter(r=>r==='H').length}½ {res.slice(start,end).filter(r=>r==='B').length}B
+              <div style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#9CA3AF'}}>
+                {res.slice(0,9).filter(r=>r==='A').length}pk {res.slice(0,9).filter(r=>r==='H').length}½ {res.slice(0,9).filter(r=>r==='B').length}en
               </div>
               <div/>
             </div>
-          </div>
-        );
-      })}
+          ):null;
 
-      {/* Grand totals */}
+          const holeEl=(
+            <div key={hi} style={{display:'grid',
+              gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+              gap:2,alignItems:'center',background:isEven?C.white:'#F9FAFB',
+              borderTop:`1px solid ${C.border}`,minHeight:50,padding:'3px 8px'}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.dark}}>{hi+1}</div>
+              <div style={{fontSize:12,fontWeight:600,color:C.mid,textAlign:'center'}}>{hole.par}</div>
+              <div style={{fontSize:11,color:'#9CA3AF',textAlign:'center'}}>{hole.si}</div>
+              {rows.map((row)=>{
+                const val=localScores[row.key]?.[hi]??null;
+                const net=val!==null?val-shotsOnHole(row.shots,hole.si):null;
+                const diff=net!==null?net-hole.par:null;
+                const bg=diff==null?'transparent':diff<=-2?C.engNavy:diff===-1?C.pakGreen:diff===0?'transparent':diff===1?'#EF4444':'#991B1B';
+                const fc=diff==null||diff===0?C.dark:C.white;
+                const br=diff!=null&&diff<=-1?'50%':'6px';
+                const shots=shotsOnHole(row.shots,hole.si);
+                return (
+                  <div key={row.key} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:1}}>
+                    {shots>0&&<div style={{fontSize:8,fontWeight:700,lineHeight:1,color:row.teamId==='A'?C.pakGreen:C.engNavy}}>{shots>1?`+${shots}`:'+'}▸</div>}
+                    <input type="number" inputMode="numeric" min={1} max={15} value={val??''} onChange={e=>setScore(row.key,hi,e.target.value)}
+                      style={{width:40,height:40,textAlign:'center',border:`1.5px solid ${diff!=null&&diff!==0?bg:C.border}`,borderRadius:br,fontSize:16,fontWeight:700,background:bg,color:fc,padding:0,outline:'none'}}/>
+                  </div>
+                );
+              })}
+              <div style={{textAlign:'center',fontSize:14,fontWeight:800,
+                color:r==='A'?C.pakGreen:r==='B'?C.engNavy:r==='H'?C.gold:'#D1D5DB'}}>
+                {r==='H'?'½':r==='A'?'PK':r==='B'?'EN':r==null&&hi<s.pl?'·':''}
+              </div>
+              <div style={{textAlign:'center',fontSize:11,fontWeight:700,
+                color:ss.sc>0?C.pakGreen:ss.sc<0?C.engNavy:'#9CA3AF'}}>{statusTxt}</div>
+            </div>
+          );
+
+          return hi===8?[holeEl,outRow]:holeEl;
+        })}
+
+        {/* IN row after hole 18 */}
+        <div style={{display:'grid',
+          gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+          gap:2,background:'#1F2937',padding:'7px 8px',alignItems:'center',
+          borderTop:'2px solid #374151'}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.gold,letterSpacing:'0.06em',paddingLeft:4}}>IN</div>
+          <div style={{fontSize:11,fontWeight:700,color:'#E5E7EB',textAlign:'center'}}>{tee.holes.slice(9).reduce((a,h)=>a+h.par,0)}</div>
+          <div/>
+          {rows.map((row,ri)=>{
+            const gross=tee.holes.slice(9).reduce((a,_,i)=>{const v=localScores[row.key]?.[i+9]??null;return v!=null?a+v:a;},0);
+            const filled=tee.holes.slice(9).every((_,i)=>localScores[row.key]?.[i+9]!=null);
+            const teamAccent=row.teamId==='A'?'#4ADE80':'#60A5FA';
+            return <div key={ri} style={{textAlign:'center',fontSize:14,fontWeight:800,color:filled?teamAccent:'#4B5563'}}>{filled?gross:'—'}</div>;
+          })}
+          <div style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#9CA3AF'}}>
+            {res.slice(9).filter(r=>r==='A').length}pk {res.slice(9).filter(r=>r==='H').length}½ {res.slice(9).filter(r=>r==='B').length}en
+          </div>
+          <div/>
+        </div>
+      </div>
+
+      {/* ── Grand totals ── */}
       {rows.some(row=>tee.holes.some((_,i)=>localScores[row.key]?.[i]!=null))&&(
-        <div style={{...card,background:C.goldLight,border:`1px solid ${C.gold}44`}}>
+        <div style={{...card,background:C.dark,border:'none',marginBottom:'0.75rem'}}>
           <div style={{fontSize:11,fontWeight:700,color:C.gold,letterSpacing:'0.08em',marginBottom:10}}>MATCH TOTALS</div>
           <div style={{display:'flex',gap:8}}>
             {rows.map((row,ri)=>{
               const pl=pairLabel(ri);
+              const teamAccent=row.teamId==='A'?'#4ADE80':'#60A5FA';
+              const teamBg=row.teamId==='A'?'#022d13':'#011540';
               const out=tee.holes.slice(0,9).reduce((a,_,i)=>{const v=localScores[row.key]?.[i]??null;return v!=null?a+v:a;},0);
               const inn=tee.holes.slice(9).reduce((a,_,i)=>{const v=localScores[row.key]?.[i+9]??null;return v!=null?a+v:a;},0);
               const outF=tee.holes.slice(0,9).every((_,i)=>localScores[row.key]?.[i]!=null);
@@ -703,15 +737,15 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
               const total=out+inn;
               const diff=total-tee.par;
               return (
-                <div key={ri} style={{flex:1,background:C.white,borderRadius:10,padding:'0.75rem',textAlign:'center',border:`1px solid ${TCOL[row.teamId]}33`}}>
-                  <div style={{fontSize:11,fontWeight:700,color:TCOL[row.teamId],marginBottom:4}}>{pl}: {row.label.split(' ')[0]}</div>
+                <div key={ri} style={{flex:1,background:teamBg,borderRadius:10,padding:'0.75rem',textAlign:'center',border:`1px solid ${TCOL[row.teamId]}44`}}>
+                  <div style={{fontSize:12,fontWeight:800,color:teamAccent,marginBottom:6}}>{pl}</div>
                   {outF&&inF?(
                     <>
-                      <div style={{fontSize:24,fontWeight:700,color:C.dark,lineHeight:1}}>{total}</div>
-                      <div style={{fontSize:11,color:diff<0?C.pakGreen:diff>0?C.red:C.mid,marginTop:2,fontWeight:600}}>{diff>0?`+${diff}`:diff===0?'E':diff}</div>
-                      <div style={{fontSize:10,color:'#9CA3AF',marginTop:2}}>{out} + {inn}</div>
+                      <div style={{fontSize:28,fontWeight:800,color:C.white,lineHeight:1}}>{total}</div>
+                      <div style={{fontSize:12,color:diff<0?'#4ADE80':diff>0?'#F87171':'#9CA3AF',marginTop:4,fontWeight:700}}>{diff>0?`+${diff}`:diff===0?'E':diff}</div>
+                      <div style={{fontSize:10,color:'#6B7280',marginTop:4}}>{out} out · {inn} in</div>
                     </>
-                  ):<div style={{fontSize:13,color:'#D1D5DB'}}>—</div>}
+                  ):<div style={{fontSize:13,color:'#4B5563',paddingTop:8}}>—</div>}
                 </div>
               );
             })}
