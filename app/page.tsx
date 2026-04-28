@@ -610,6 +610,13 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
     if(ri===0) return 'PK1'; if(ri===1) return 'PK2';
     if(ri===2) return 'EN1'; return 'EN2';
   };
+  // Shared grid template — hole + par + si + one col per player + res + status
+  // Using % for fixed cols so it scales to any screen width
+  const nPlayers = rows.length;
+  const fixedCols = `7% 6% 6%`; // hole, par, si
+  const playerCols = rows.map(()=>'1fr').join(' ');
+  const endCols = `9% 11%`; // res, status
+  const GRID = `${fixedCols} ${playerCols} ${endCols}`;
 
   return (
     <div>
@@ -756,7 +763,7 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
         })}
         {/* Column label row — always visible */}
         <div style={{display:'grid',
-          gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 56px 56px`,
+          gridTemplateColumns:GRID,
           gap:2,padding:'5px 8px',background:'rgba(255,255,255,0.06)',alignItems:'center',
           borderTop:'1px solid rgba(255,255,255,0.06)'}}>
           <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:'0.06em'}}>HOLE</div>
@@ -783,7 +790,7 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
           const isOut=hi===8; // after hole 9
           const outRow=isOut?(
             <div key={`out`} style={{display:'grid',
-              gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+              gridTemplateColumns:GRID,
               gap:2,background:'#1F2937',padding:'7px 8px',alignItems:'center',
               borderTop:'2px solid #374151',borderBottom:'2px solid #374151'}}>
               <div style={{fontSize:11,fontWeight:800,color:C.gold,letterSpacing:'0.06em',paddingLeft:4}}>OUT</div>
@@ -809,7 +816,7 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
 
           const holeEl=(
             <div key={hi} style={{display:'grid',
-              gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+              gridTemplateColumns:GRID,
               gap:2,alignItems:'center',background:isEven?C.white:'#F9FAFB',
               borderTop:`1px solid ${C.border}`,minHeight:50,padding:'3px 8px'}}>
               <div style={{fontSize:12,fontWeight:700,color:C.dark}}>{hi+1}</div>
@@ -855,7 +862,7 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
 
         {/* IN row after hole 18 */}
         <div style={{display:'grid',
-          gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
+          gridTemplateColumns:GRID,
           gap:2,background:'#1F2937',padding:'7px 8px',alignItems:'center',
           borderTop:'2px solid #374151'}}>
           <div style={{fontSize:11,fontWeight:800,color:C.gold,letterSpacing:'0.06em',paddingLeft:4}}>IN</div>
