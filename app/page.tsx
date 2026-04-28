@@ -90,11 +90,23 @@ function getResults(day:number, match:Pairing, players:Player[], course:Course, 
     const all=[...teamA,...teamB], phs:Record<string,number>={};
     all.forEach(pid=>phs[pid]=ph(pid));
     const mn=Math.min(...Object.values(phs));
+    // 90% of difference to lowest, rounded
+    const adj=(pid:string)=>Math.round(Math.max(0,phs[pid]-mn)*0.9);
     return tee.holes.map((hole,i)=>{
-      const net=(pid:string)=>{const s=scores[`d2_${pid}`]?.[i];return!s?Infinity:s-shotsOnHole(Math.max(0,phs[pid]-mn),hole.si);};
+      const net=(pid:string)=>{const s=scores[`d2_${pid}`]?.[i];return s==null?Infinity:s-shotsOnHole(adj(pid),hole.si);};
+      // Best ball point
       const bA=Math.min(net(teamA[0]),net(teamA[1])), bB=Math.min(net(teamB[0]),net(teamB[1]));
-      if(!isFinite(bA)||!isFinite(bB)) return null;
-      return holeWinner(bA,bB);
+      // Aggregate point
+      const aggA=net(teamA[0])+net(teamA[1]), aggB=net(teamB[0])+net(teamB[1]);
+      const bbValid=isFinite(bA)&&isFinite(bB);
+      const aggValid=isFinite(aggA)&&isFinite(aggB);
+      if(!bbValid&&!aggValid) return null;
+      // Encode: pts for A = bb_pts + agg_pts (0, 0.5, 1, 1.5, 2)
+      const bbPtsA=bbValid?(bA<bB?1:bA===bB?0.5:0):0;
+      const aggPtsA=aggValid?(aggA<aggB?1:aggA===aggB?0.5:0):0;
+      const totalA=bbPtsA+aggPtsA, totalB=(bbValid?1:0)+(aggValid?1:0)-totalA;
+      // Encode as special string for Day 2: "ptsA:ptsB"
+      return `${totalA}:${totalB}`;
     });
   }
   if(day===3){
@@ -110,7 +122,27 @@ function getResults(day:number, match:Pairing, players:Player[], course:Course, 
   }
   return Array(18).fill(null);
 }
+// For Day 2: extract running points from encoded "ptsA:ptsB" results
+function d2RunningPts(res:(string|null)[]): {ptsA:number;ptsB:number;pl:number} {
+  let ptsA=0,ptsB=0,pl=0;
+  for(let i=0;i<18;i++){
+    if(res[i]==null) break; pl++;
+    const parts=res[i]!.split(':');
+    ptsA+=parseFloat(parts[0]||'0');
+    ptsB+=parseFloat(parts[1]||'0');
+  }
+  return{ptsA,ptsB,pl};
+}
+function isD2Result(res:(string|null)[]): boolean {
+  return res.some(r=>r!=null&&r.includes(':'));
+}
 function matchStat(res:(string|null)[]): MatchStat {
+  if(isD2Result(res)){
+    // For Day 2, convert running pts to a comparable sc (ptsA - ptsB scaled)
+    const{ptsA,ptsB,pl}=d2RunningPts(res);
+    const sc=ptsA-ptsB; // can be fractional
+    return{sc,pl,closed:false,rem:18-pl};
+  }
   let sc=0,pl=0;
   for(let i=0;i<18;i++){
     if(res[i]==null) break; pl++;
@@ -122,9 +154,9 @@ function matchStat(res:(string|null)[]): MatchStat {
 function statLabel(s:MatchStat): string {
   if(s.pl===0) return 'Not started';
   if(s.closed) return`${s.sc>0?TNAME.A:TNAME.B} wins ${Math.abs(s.sc)}&${s.rem}`;
-  if(s.pl===18) return s.sc===0?'Halved':`${s.sc>0?TNAME.A:TNAME.B} wins`;
-  if(s.sc===0) return 'All square';
-  return`${s.sc>0?TNAME.A:TNAME.B} ${Math.abs(s.sc)} up`;
+  if(s.pl===18) return s.sc===0?'Tied':`${s.sc>0?TNAME.A:TNAME.B} leads`;
+  if(s.sc===0) return 'Level';
+  return`${s.sc>0?TNAME.A:TNAME.B} leads`;
 }
 function matchPts(s:MatchStat): {A:number;B:number} {
   const done=s.closed||s.pl===18;
@@ -132,6 +164,11 @@ function matchPts(s:MatchStat): {A:number;B:number} {
   if(s.sc>0) return{A:1,B:0};
   if(s.sc<0) return{A:0,B:1};
   return{A:0.5,B:0.5};
+}
+// Day 2 total points (out of max 2 per hole × 18 = 36 total)
+function d2TotalPts(res:(string|null)[]): {A:number;B:number} {
+  const{ptsA,ptsB}=d2RunningPts(res);
+  return{A:ptsA,B:ptsB};
 }
 function fmtPt(n:number): string { return n%1===0?String(n):n.toFixed(1); }
 
@@ -480,35 +517,45 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
   const {trigger, saveState} = useAutoSave(onSave);
   const [showRules, setShowRules] = useState(false);
 
-  interface Row { key:string; label:string; teamId:string; hcp:number; shots:number; }
+  const initials=(pid:string)=>{const n=nameOf(pid);return n.split(' ').map((w:string)=>w[0]?.toUpperCase()||'').join('').slice(0,3)||'?';};
+  interface Row { key:string; label:string; initials:string; teamId:string; hcp:number; adjHcp:number; shots:number; pid:string; }
   const buildRows=():Row[]=>{
     if(day===1){
       const{teamA,teamB}=match;
       const hA=scrambHcp(ph(teamA[0]),ph(teamA[1])), hB=scrambHcp(ph(teamB[0]),ph(teamB[1]));
       return[
-        {key:`d1_${matchId}_A`,label:`${nameOf(teamA[0])} & ${nameOf(teamA[1])}`,teamId:'A',hcp:hA,shots:Math.max(0,hA-hB)},
-        {key:`d1_${matchId}_B`,label:`${nameOf(teamB[0])} & ${nameOf(teamB[1])}`,teamId:'B',hcp:hB,shots:Math.max(0,hB-hA)},
+        {key:`d1_${matchId}_A`,label:`${nameOf(teamA[0])} & ${nameOf(teamA[1])}`,initials:'PK',teamId:'A',hcp:hA,adjHcp:hA,shots:Math.max(0,hA-hB),pid:teamA[0]},
+        {key:`d1_${matchId}_B`,label:`${nameOf(teamB[0])} & ${nameOf(teamB[1])}`,initials:'EN',teamId:'B',hcp:hB,adjHcp:hB,shots:Math.max(0,hB-hA),pid:teamB[0]},
       ];
     }
     if(day===2){
       const{teamA,teamB}=match; const all=[...teamA,...teamB];
       const phs:Record<string,number>={}; all.forEach(pid=>phs[pid]=ph(pid));
       const mn=Math.min(...Object.values(phs));
+      const adj=(pid:string)=>Math.round(Math.max(0,phs[pid]-mn)*0.9);
       return[
-        {key:`d2_${teamA[0]}`,label:nameOf(teamA[0]),teamId:'A',hcp:phs[teamA[0]],shots:Math.max(0,phs[teamA[0]]-mn)},
-        {key:`d2_${teamA[1]}`,label:nameOf(teamA[1]),teamId:'A',hcp:phs[teamA[1]],shots:Math.max(0,phs[teamA[1]]-mn)},
-        {key:`d2_${teamB[0]}`,label:nameOf(teamB[0]),teamId:'B',hcp:phs[teamB[0]],shots:Math.max(0,phs[teamB[0]]-mn)},
-        {key:`d2_${teamB[1]}`,label:nameOf(teamB[1]),teamId:'B',hcp:phs[teamB[1]],shots:Math.max(0,phs[teamB[1]]-mn)},
+        {key:`d2_${teamA[0]}`,label:nameOf(teamA[0]),initials:initials(teamA[0]),teamId:'A',hcp:phs[teamA[0]],adjHcp:adj(teamA[0]),shots:adj(teamA[0]),pid:teamA[0]},
+        {key:`d2_${teamA[1]}`,label:nameOf(teamA[1]),initials:initials(teamA[1]),teamId:'A',hcp:phs[teamA[1]],adjHcp:adj(teamA[1]),shots:adj(teamA[1]),pid:teamA[1]},
+        {key:`d2_${teamB[0]}`,label:nameOf(teamB[0]),initials:initials(teamB[0]),teamId:'B',hcp:phs[teamB[0]],adjHcp:adj(teamB[0]),shots:adj(teamB[0]),pid:teamB[0]},
+        {key:`d2_${teamB[1]}`,label:nameOf(teamB[1]),initials:initials(teamB[1]),teamId:'B',hcp:phs[teamB[1]],adjHcp:adj(teamB[1]),shots:adj(teamB[1]),pid:teamB[1]},
       ];
     }
     const{playerA,playerB}=match; const phA=ph(playerA),phB=ph(playerB);
+    const mn3=Math.min(phA,phB);
     return[
-      {key:`d3_${playerA}`,label:nameOf(playerA),teamId:'A',hcp:phA,shots:Math.max(0,phA-phB)},
-      {key:`d3_${playerB}`,label:nameOf(playerB),teamId:'B',hcp:phB,shots:Math.max(0,phB-phA)},
+      {key:`d3_${playerA}`,label:nameOf(playerA),initials:initials(playerA),teamId:'A',hcp:phA,adjHcp:Math.max(0,phA-mn3),shots:Math.max(0,phA-phB),pid:playerA},
+      {key:`d3_${playerB}`,label:nameOf(playerB),initials:initials(playerB),teamId:'B',hcp:phB,adjHcp:Math.max(0,phB-mn3),shots:Math.max(0,phB-phA),pid:playerB},
     ];
   };
 
   const rows=buildRows();
+  // Day 1 shot counters: drives and seconds per player
+  const [driveCounts, setDriveCounts]=useState<Record<string,number>>({});
+  const [secondCounts, setSecondCounts]=useState<Record<string,number>>({});
+  const bumpDrive=(pid:string)=>setDriveCounts(p=>({...p,[pid]:(p[pid]||0)+1}));
+  const bumpSecond=(pid:string)=>setSecondCounts(p=>({...p,[pid]:(p[pid]||0)+1}));
+  const resetCounts=()=>{setDriveCounts({});setSecondCounts({});};
+
   const [localScores, setLocalScores]=useState<Record<string,(number|null)[]>>(()=>{
     const init:Record<string,(number|null)[]>={};
     rows.forEach(r=>{init[r.key]=scores[r.key]?[...scores[r.key]]:Array(18).fill(null);});
@@ -553,22 +600,64 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
       </div>
 
       {/* Match status banner */}
-      <div style={{background:done?C.greenLight:C.dark,borderRadius:12,padding:'1rem 1.25rem',marginBottom:'1rem',border:done?`1px solid ${C.green}33`:'none'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div style={{background:C.dark,borderRadius:12,padding:'1rem 1.25rem',marginBottom:'0.75rem'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:s.pl>0?10:0}}>
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:done?C.green:C.white}}>{statLabel(s)}</div>
-            {s.pl>0&&<div style={{fontSize:11,color:done?C.green:C.gold,marginTop:2,opacity:0.8}}>{s.pl} holes played</div>}
+            <div style={{fontSize:15,fontWeight:700,color:C.white}}>{statLabel(s)}</div>
+            {s.pl>0&&<div style={{fontSize:11,color:C.gold,marginTop:2}}>{s.pl} holes played</div>}
           </div>
           {s.pl>0&&(
             <div style={{display:'flex',gap:16}}>
               {(['A','B'] as const).map(tid=>(
                 <div key={tid} style={{textAlign:'center'}}>
-                  <div style={{fontSize:10,color:done?TCOL[tid]:'#9CA3AF',fontWeight:600}}>{TNAME[tid]}</div>
-                  <div style={{fontSize:24,fontWeight:700,color:done?TCOL[tid]:C.white}}>{pts[tid]}</div>
+                  <div style={{fontSize:10,color:tid==='A'?'#4ADE80':'#60A5FA',fontWeight:700}}>{TNAME[tid]}</div>
+                  <div style={{fontSize:22,fontWeight:800,color:tid==='A'?'#4ADE80':'#60A5FA'}}>
+                    {day===2?fmtPt(d2TotalPts(res)[tid]):fmtPt(pts[tid])}
+                  </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+        {/* Match details: handicaps */}
+        <div style={{borderTop:s.pl>0?`1px solid rgba(255,255,255,0.1)`:'none',paddingTop:s.pl>0?8:0}}>
+          {day===1&&(()=>{const r0=rows[0],r1=rows[1];return(
+            <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.6)'}}>
+                <span style={{color:'#4ADE80',fontWeight:700}}>PK</span> Team HCP: <span style={{color:C.white,fontWeight:700}}>{r0.hcp}</span>
+                {r0.shots>0&&<span style={{color:C.gold}}> (gets {r0.shots} shots)</span>}
+              </div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.6)'}}>
+                <span style={{color:'#60A5FA',fontWeight:700}}>EN</span> Team HCP: <span style={{color:C.white,fontWeight:700}}>{r1.hcp}</span>
+                {r1.shots>0&&<span style={{color:C.gold}}> (gets {r1.shots} shots)</span>}
+              </div>
+            </div>
+          );})()}
+          {day===2&&(()=>{const mn=Math.min(...rows.map(r=>r.hcp));return(
+            <div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.5)',marginBottom:4}}>Adjusted handicaps (90% of diff to lowest PH {mn}):</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                {rows.map((row,ri)=>(
+                  <div key={ri} style={{fontSize:11}}>
+                    <span style={{color:row.teamId==='A'?'#4ADE80':'#60A5FA',fontWeight:700}}>{row.initials}</span>
+                    <span style={{color:'rgba(255,255,255,0.5)'}}> PH {row.hcp} → </span>
+                    <span style={{color:C.white,fontWeight:700}}>{row.adjHcp}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );})()}
+          {day===3&&(()=>{const mn=Math.min(...rows.map(r=>r.hcp));return(
+            <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+              {rows.map((row,ri)=>(
+                <div key={ri} style={{fontSize:11}}>
+                  <span style={{color:row.teamId==='A'?'#4ADE80':'#60A5FA',fontWeight:700}}>{row.initials}</span>
+                  <span style={{color:'rgba(255,255,255,0.5)'}}> PH {row.hcp} → net </span>
+                  <span style={{color:C.white,fontWeight:700}}>{row.adjHcp===0?'scratch':`gets ${row.adjHcp}`}</span>
+                </div>
+              ))}
+            </div>
+          );})()}
         </div>
       </div>
 
@@ -580,57 +669,76 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
       </button>
       {showRules&&(
         <div style={{...card,fontSize:13,color:C.dark,lineHeight:1.7,marginBottom:'0.75rem'}}>
-          {day===1&&<><div style={{fontWeight:600,marginBottom:6}}>2-Ball Scramble</div><div style={{marginBottom:8,color:C.mid}}>Both players tee off. Best drive selected, both play from that spot. Team records one score per hole.</div><div style={{fontWeight:600,marginBottom:4}}>Team handicap</div><div style={{color:C.mid}}>35% of lower playing handicap + 15% of higher, rounded. Higher handicap team receives the difference as shots by stroke index.</div></>}
-          {day===2&&<><div style={{fontWeight:600,marginBottom:6}}>Fourball Better Ball</div><div style={{marginBottom:8,color:C.mid}}>All four play their own ball. Best net score from each pair counts per hole.</div><div style={{fontWeight:600,marginBottom:4}}>Handicap</div><div style={{color:C.mid}}>Full playing handicaps. Lowest of the four goes to scratch, others receive the difference by stroke index.</div></>}
-          {day===3&&<><div style={{fontWeight:600,marginBottom:6}}>Singles Match Play</div><div style={{marginBottom:8,color:C.mid}}>Each player plays own ball. Lower net score wins the hole. Most holes up wins the match.</div><div style={{fontWeight:600,marginBottom:4}}>Handicap</div><div style={{color:C.mid}}>Lower playing handicap goes to scratch. Higher receives the difference by stroke index.</div></>}
-          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,color:C.mid,fontSize:12}}>Win = 1 pt · Halved = ½ pt each · Loss = 0 pts</div>
+          {day===1&&<>
+            <div style={{fontWeight:700,marginBottom:6,fontSize:14}}>Texas Scramble — 2-ball team match</div>
+            <div style={{marginBottom:8,color:C.mid}}>Both players tee off on every hole. The best drive is selected and both play their next shot from that spot. Continue until holed. One team score per hole.</div>
+            <div style={{fontWeight:600,marginBottom:4,color:C.dark}}>Shot requirements (per player, per round)</div>
+            <div style={{marginBottom:8,color:C.mid}}>Each player must contribute a minimum of <strong>7 tee shots</strong> and <strong>5 second shots</strong>. Par 3 second shots do not count toward the 5 second shot requirement.</div>
+            <div style={{fontWeight:600,marginBottom:4,color:C.dark}}>Team handicap</div>
+            <div style={{color:C.mid}}>35% × lower playing HCP + 15% × higher playing HCP, rounded. Higher handicap team receives the difference in shots, allocated by stroke index.</div>
+          </>}
+          {day===2&&<>
+            <div style={{fontWeight:700,marginBottom:6,fontSize:14}}>Fourball — Best Ball &amp; Aggregate</div>
+            <div style={{marginBottom:8,color:C.mid}}>All four players play their own ball. <strong>2 points available per hole:</strong></div>
+            <div style={{marginBottom:4,color:C.mid}}>• <strong>Point 1 (Best Ball):</strong> Lower net score from each pair wins 1 point. Halved if equal.</div>
+            <div style={{marginBottom:8,color:C.mid}}>• <strong>Point 2 (Aggregate):</strong> Lower combined net score from each pair wins 1 point. Halved if equal.</div>
+            <div style={{fontWeight:600,marginBottom:4,color:C.dark}}>Handicap</div>
+            <div style={{color:C.mid}}>Lowest playing handicap in the 4-ball plays off scratch. Others receive 90% of their difference to that player, rounded.</div>
+          </>}
+          {day===3&&<>
+            <div style={{fontWeight:700,marginBottom:6,fontSize:14}}>Singles Match Play</div>
+            <div style={{marginBottom:8,color:C.mid}}>Each player plays their own ball. Lower net score wins the hole. The player more holes up than holes remaining wins the match.</div>
+            <div style={{fontWeight:600,marginBottom:4,color:C.dark}}>Handicap</div>
+            <div style={{color:C.mid}}>Lower handicap player plays off scratch. Higher handicap player receives the full difference in shots, allocated by stroke index.</div>
+          </>}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,color:C.mid,fontSize:12}}>
+            {day===2?'Each hole: 0–2 points available per team (best ball + aggregate)'
+              :'Win = 1 pt · Halved = ½ pt each · Loss = 0 pts'}
+          </div>
         </div>
       )}
 
-      {/* ── Sticky player name card ── */}
-      <div style={{position:'sticky',top:56,zIndex:15,marginBottom:'0.75rem',
-        background:C.dark,borderRadius:12,overflow:'hidden',boxShadow:'0 4px 12px rgba(0,0,0,0.3)'}}>
-        {/* Team rows */}
-        {rows.map((row,ri)=>{
-          const isA=row.teamId==='A';
-          const teamCol=isA?C.pakGreen:C.engNavy;
-          const teamBg=isA?'#022d13':'#011540';
-          const pl=pairLabel(ri);
-          // For fourball show both player names in the pair
-          const partnerRow=rows.length>2?(ri%2===0?rows[ri+1]:rows[ri-1]):null;
-          if(rows.length>2&&ri%2!==0&&ri>0&&rows[ri-1].teamId===row.teamId) return null; // skip second of pair, shown together
-          const names=partnerRow?`${row.label} · ${partnerRow.label}`:row.label;
-          const hcpLabel=partnerRow?`HCP ${row.hcp} · ${partnerRow.hcp}`:`HCP ${row.hcp}`;
+      {/* ── Player header card (fixed, not sticky) ── */}
+      <div style={{marginBottom:'0.75rem',background:C.dark,borderRadius:12,overflow:'hidden'}}>
+        {/* Team name rows */}
+        {(rows.length<=2?rows:[rows[0],rows[2]]).map((row,ri)=>{
+          const teamCol=row.teamId==='A'?C.pakGreen:C.engNavy;
+          const teamBg=row.teamId==='A'?'#022d13':'#011540';
+          const teammates=rows.filter(r=>r.teamId===row.teamId);
           return (
             <div key={ri} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
-              padding:'10px 14px',background:teamBg,borderBottom:ri<rows.length-1?`1px solid rgba(255,255,255,0.08)`:'none'}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div style={{background:teamCol,borderRadius:6,padding:'3px 8px',minWidth:36,textAlign:'center'}}>
-                  <div style={{fontSize:11,fontWeight:800,color:C.white,letterSpacing:'0.04em'}}>{pl}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:C.white}}>{names}</div>
-                  <div style={{fontSize:11,color:'rgba(255,255,255,0.45)',marginTop:1}}>{hcpLabel}</div>
-                </div>
+              padding:'8px 12px',background:teamBg,borderBottom:`1px solid rgba(255,255,255,0.06)`}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',flex:1}}>
+                {teammates.map((tm,ti)=>(
+                  <div key={ti} style={{display:'flex',alignItems:'center',gap:6}}>
+                    <div style={{background:teamCol,borderRadius:5,padding:'2px 7px',minWidth:32,textAlign:'center'}}>
+                      <div style={{fontSize:11,fontWeight:800,color:C.white,letterSpacing:'0.02em'}}>{tm.initials}</div>
+                    </div>
+                    <div style={{fontSize:12,fontWeight:600,color:C.white}}>{tm.label}</div>
+                    {ti<teammates.length-1&&<span style={{color:'rgba(255,255,255,0.2)',fontSize:10}}>·</span>}
+                  </div>
+                ))}
               </div>
-              <SaveIndicator state={saveState[row.key]||'idle'}/>
+              <div style={{display:'flex',gap:4}}>
+                {rows.filter(r=>r.teamId===row.teamId).map(r=><SaveIndicator key={r.key} state={saveState[r.key]||'idle'}/>)}
+              </div>
             </div>
           );
         })}
-        {/* Column header row */}
+        {/* Column headers */}
         <div style={{display:'grid',
-          gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 44px 56px`,
-          gap:2,padding:'6px 8px',background:'rgba(255,255,255,0.05)',alignItems:'center'}}>
+          gridTemplateColumns:`52px 28px 24px ${rows.map(()=>'1fr').join(' ')} 56px 56px`,
+          gap:2,padding:'5px 8px',background:'rgba(255,255,255,0.04)',alignItems:'center'}}>
           <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:'0.06em'}}>HOLE</div>
-          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>Par</div>
-          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>SI</div>
+          <div style={{fontSize:10,fontWeight:700,color:'#D1D5DB',textAlign:'center'}}>Par</div>
+          <div style={{fontSize:10,fontWeight:700,color:'#D1D5DB',textAlign:'center'}}>SI</div>
           {rows.map((row,ri)=>(
             <div key={ri} style={{textAlign:'center'}}>
-              <div style={{fontSize:11,fontWeight:800,color:TCOL[row.teamId]=== C.pakGreen?'#4ADE80':'#60A5FA'}}>{pairLabel(ri)}</div>
+              <div style={{fontSize:12,fontWeight:800,color:row.teamId==='A'?'#4ADE80':'#60A5FA'}}>{row.initials}</div>
             </div>
           ))}
-          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>Res</div>
-          <div style={{fontSize:10,fontWeight:600,color:'#E5E7EB',textAlign:'center'}}>Status</div>
+          <div style={{fontSize:10,fontWeight:700,color:'#D1D5DB',textAlign:'center'}}>{day===2?'Pts':'Res'}</div>
+          <div style={{fontSize:10,fontWeight:700,color:'#D1D5DB',textAlign:'center'}}>Status</div>
         </div>
       </div>
 
@@ -658,7 +766,12 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
                 return <div key={ri} style={{textAlign:'center',fontSize:14,fontWeight:800,color:filled?teamAccent:'#4B5563'}}>{filled?gross:'—'}</div>;
               })}
               <div style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#9CA3AF'}}>
-                {res.slice(0,9).filter(r=>r==='A').length}pk {res.slice(0,9).filter(r=>r==='H').length}½ {res.slice(0,9).filter(r=>r==='B').length}en
+                {day===2?(()=>{
+                  const front=res.slice(0,9).filter(r=>r!=null);
+                  const[pa,pb]=front.reduce(([a,b],r)=>{const[x,y]=r!.split(':').map(Number);return[a+x,b+y];},[0,0]);
+                  return <span><span style={{color:'#4ADE80'}}>{fmtPt(pa)}</span>–<span style={{color:'#60A5FA'}}>{fmtPt(pb)}</span></span>;
+                })()
+                :`${res.slice(0,9).filter(r=>r==='A').length}pk ${res.slice(0,9).filter(r=>r==='H').length}½ ${res.slice(0,9).filter(r=>r==='B').length}en`}
               </div>
               <div/>
             </div>
@@ -688,9 +801,19 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
                   </div>
                 );
               })}
-              <div style={{textAlign:'center',fontSize:14,fontWeight:800,
-                color:r==='A'?C.pakGreen:r==='B'?C.engNavy:r==='H'?C.gold:'#D1D5DB'}}>
-                {r==='H'?'½':r==='A'?'PK':r==='B'?'EN':r==null&&hi<s.pl?'·':''}
+              {/* Result column — Day 2 shows pts, others show PK/EN/½ */}
+              <div style={{textAlign:'center',fontSize:12,fontWeight:800,lineHeight:1.1}}>
+                {day===2&&r!=null?(()=>{
+                  const[pa,pb]=r.split(':').map(Number);
+                  return <div>
+                    <div style={{color:'#4ADE80'}}>{fmtPt(pa)}</div>
+                    <div style={{color:'#60A5FA'}}>{fmtPt(pb)}</div>
+                  </div>;
+                })()
+                :r==='H'?<span style={{color:C.gold,fontSize:14}}>½</span>
+                :r==='A'?<span style={{color:C.pakGreen}}>PK</span>
+                :r==='B'?<span style={{color:C.engNavy}}>EN</span>
+                :<span style={{color:'#D1D5DB',fontSize:10}}>·</span>}
               </div>
               <div style={{textAlign:'center',fontSize:11,fontWeight:700,
                 color:ss.sc>0?C.pakGreen:ss.sc<0?C.engNavy:'#9CA3AF'}}>{statusTxt}</div>
@@ -715,7 +838,12 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
             return <div key={ri} style={{textAlign:'center',fontSize:14,fontWeight:800,color:filled?teamAccent:'#4B5563'}}>{filled?gross:'—'}</div>;
           })}
           <div style={{textAlign:'center',fontSize:10,fontWeight:600,color:'#9CA3AF'}}>
-            {res.slice(9).filter(r=>r==='A').length}pk {res.slice(9).filter(r=>r==='H').length}½ {res.slice(9).filter(r=>r==='B').length}en
+            {day===2?(()=>{
+              const back=res.slice(9).filter(r=>r!=null);
+              const[pa,pb]=back.reduce(([a,b],r)=>{const[x,y]=r!.split(':').map(Number);return[a+x,b+y];},[0,0]);
+              return <span><span style={{color:'#4ADE80'}}>{fmtPt(pa)}</span>–<span style={{color:'#60A5FA'}}>{fmtPt(pb)}</span></span>;
+            })()
+            :`${res.slice(9).filter(r=>r==='A').length}pk ${res.slice(9).filter(r=>r==='H').length}½ ${res.slice(9).filter(r=>r==='B').length}en`}
           </div>
           <div/>
         </div>
@@ -724,9 +852,25 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
       {/* ── Grand totals ── */}
       {rows.some(row=>tee.holes.some((_,i)=>localScores[row.key]?.[i]!=null))&&(
         <div style={{...card,background:C.dark,border:'none',marginBottom:'0.75rem'}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.gold,letterSpacing:'0.08em',marginBottom:10}}>MATCH TOTALS</div>
+          <div style={{fontSize:11,fontWeight:700,color:C.gold,letterSpacing:'0.08em',marginBottom:10}}>
+            {day===2?'MATCH POINTS':'MATCH TOTALS'}
+          </div>
           <div style={{display:'flex',gap:8}}>
-            {rows.map((row,ri)=>{
+            {day===2?(
+              (['A','B'] as const).map(tid=>{
+                const teamAccent=tid==='A'?'#4ADE80':'#60A5FA';
+                const teamBg=tid==='A'?'#022d13':'#011540';
+                const{A,B}=d2TotalPts(res);
+                const val=tid==='A'?A:B;
+                return(
+                  <div key={tid} style={{flex:1,background:teamBg,borderRadius:10,padding:'0.75rem',textAlign:'center',border:`1px solid ${TCOL[tid]}44`}}>
+                    <div style={{fontSize:12,fontWeight:800,color:teamAccent,marginBottom:6}}>{TNAME[tid]}</div>
+                    <div style={{fontSize:32,fontWeight:800,color:C.white,lineHeight:1}}>{fmtPt(val)}</div>
+                    <div style={{fontSize:10,color:'#6B7280',marginTop:4}}>of {res.filter(r=>r!=null).length*2} pts played</div>
+                  </div>
+                );
+              })
+            ):rows.map((row,ri)=>{
               const pl=pairLabel(ri);
               const teamAccent=row.teamId==='A'?'#4ADE80':'#60A5FA';
               const teamBg=row.teamId==='A'?'#022d13':'#011540';
@@ -750,6 +894,47 @@ function ScoreEntry({day,matchId,pairings,players,course,scores,onSave,onBack}: 
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── Day 1 Shot counter ── */}
+      {day===1&&(
+        <div style={{...card,background:C.dark,border:'none',marginBottom:'0.75rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.gold,letterSpacing:'0.08em'}}>SHOT TRACKER</div>
+            <button onClick={resetCounts} style={{fontSize:10,color:'#6B7280',background:'none',border:'1px solid #374151',borderRadius:6,padding:'2px 8px',cursor:'pointer'}}>Reset</button>
+          </div>
+          <div style={{fontSize:11,color:'#6B7280',marginBottom:10}}>Each player needs min. 7 drives &amp; 5 second shots. Par 3 second shots don't count.</div>
+          {match.teamA&&match.teamA[0]&&[...match.teamA,...match.teamB].map((pid,pi)=>{
+            const nm=nameOf(pid); const tid=pi<2?'A':'B';
+            const drives=driveCounts[pid]||0; const seconds=secondCounts[pid]||0;
+            const dOk=drives>=7; const sOk=seconds>=5;
+            return(
+              <div key={pid} style={{marginBottom:10,padding:'8px 10px',borderRadius:8,background:dOk&&sOk?'#022d13':'#1a1a2e',border:`1px solid ${dOk&&sOk?C.pakGreen+'33':'#374151'}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                  <div style={{fontSize:12,fontWeight:700,color:tid==='A'?'#4ADE80':'#60A5FA'}}>{nm}</div>
+                  {dOk&&sOk&&<span style={{fontSize:10,color:C.pakGreen,fontWeight:600}}>✓ Requirements met</span>}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  {[
+                    {label:'Drives',count:drives,target:7,ok:dOk,onTap:()=>bumpDrive(pid)},
+                    {label:'2nd shots',count:seconds,target:5,ok:sOk,onTap:()=>bumpSecond(pid)},
+                  ].map(({label,count,target,ok,onTap})=>(
+                    <div key={label}>
+                      <div style={{fontSize:10,color:'#6B7280',marginBottom:4}}>{label} (min {target})</div>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <div style={{fontSize:18,fontWeight:800,color:ok?'#4ADE80':'#F87171',minWidth:28}}>{count}</div>
+                        <div style={{flex:1,height:4,borderRadius:2,background:'#374151',overflow:'hidden'}}>
+                          <div style={{height:'100%',width:`${Math.min(100,(count/target)*100)}%`,background:ok?C.pakGreen:'#F87171',borderRadius:2,transition:'width 0.2s'}}/>
+                        </div>
+                        <button onClick={onTap} style={{background:ok?C.pakGreen:C.engNavy,color:C.white,border:'none',borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,cursor:'pointer'}}>+</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
